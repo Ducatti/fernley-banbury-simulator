@@ -1,0 +1,644 @@
+<title>Simulador No. 1 Mixer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: IHM de sala de controle em tom grafite (estilo ISA-101: cinza em operação normal, cor só para estado e alarme).
+   Barra de status fixa no topo, abas de tela, sinótico à esquerda e painel de valores à direita. */
+:root {
+  color-scheme: dark;
+  --bg: #1b1f23; --panel: #252a2f; --panel2: #2e343a; --inset: #15181b; --line: #3d454d; --line2: #4c565f;
+  --fg: #dfe4e8; --dim: #8f99a3; --faint: #5f6a74;
+  --accent: #5aa9d6; --accent-ink: #0d2230;
+  --ok: #46b873; --warn: #e3a72f; --alarm: #ec4f52; --off: #5d666e;
+  --pen-t: #f27a4a; --pen-p: #e6c84c; --pen-e: #b592f0; --pen-rpm: #52c48d; --pen-pr: #5ab4dc; --pen-pos: #c7cfd6;
+  --metal: #59636c; --metal2: #7a858f; --cavity: #101315;
+  --ui: 'Barlow Semi Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+  --num: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 15px; line-height: 1.35; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+@media (max-width: 700px) { .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); } }
+
+/* Barra superior */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--inset); }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--inset); border-bottom: 1px solid var(--line); }
+.top-in { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-block: 8px; }
+.brand { display: flex; flex-direction: column; line-height: 1.1; margin-right: 4px; }
+.brand b { font-size: 17px; letter-spacing: .04em; }
+.brand span { font-size: 12px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 3px; font-weight: 600; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line2); background: var(--panel); }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
+.pill.ok .dot { background: var(--ok); } .pill.warn .dot { background: var(--warn); } .pill.alarm .dot { background: var(--alarm); }
+.pill.mode-auto { background: #1f3a4d; border-color: var(--accent); }
+.pill.mode-man { background: #4a3a14; border-color: var(--warn); }
+.meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+.meta b { color: var(--fg); font-family: var(--num); font-weight: 500; }
+.spacer { flex: 1; }
+.speed { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
+.speed select { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 3px 6px; }
+.estop { background: #8c1d20; border: 2px solid #f0a0a0; color: #fff; font-weight: 700; letter-spacing: .06em; border-radius: 4px; padding: 6px 12px; cursor: pointer; text-transform: uppercase; font-size: 13px; }
+.estop.on { animation: blink 1s steps(2) infinite; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; }
+.tab { background: transparent; border: 0; border-bottom: 3px solid transparent; padding: 8px 14px; color: var(--dim); cursor: pointer; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; font-size: 13px; white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--alarm); color: #fff; font-size: 11px; text-align: center; }
+.tab .badge[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+main { padding-block: 12px 70px; }
+.view[hidden] { display: none !important; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+.ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.pb { padding: 10px; }
+
+/* Tela de operação */
+.op { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 980px) { .op { grid-template-columns: minmax(0, 1fr); } }
+.syn svg { width: 100%; height: auto; display: block; max-height: 640px; }
+.syn text { font-family: var(--ui); }
+.tagv { font-family: var(--num); font-size: 15px; fill: var(--fg); }
+.tagl { font-size: 11px; fill: var(--dim); letter-spacing: .08em; }
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+@media (max-width: 520px) { .pv { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pvc { background: var(--panel); padding: 8px 10px; min-width: 0; }
+.pvc .l { font-size: 11px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+.pvc .v { font-family: var(--num); font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.15; white-space: nowrap; }
+.pvc .v small { font-size: 12px; color: var(--dim); margin-left: 3px; }
+.pvc .sub { font-size: 12px; color: var(--dim); font-family: var(--num); }
+.bar { height: 5px; background: var(--inset); margin-top: 5px; position: relative; border-radius: 1px; }
+.bar i { position: absolute; inset: 0 auto 0 0; background: var(--metal2); border-radius: 1px; }
+.bar .mk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); }
+.pvc.al .v { color: var(--alarm); } .pvc.wn .v { color: var(--warn); }
+
+.ctl { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 7px 12px; cursor: pointer; font-weight: 600; letter-spacing: .03em; font-size: 14px; }
+.btn:hover { border-color: var(--metal2); }
+.btn:active { transform: translateY(1px); }
+.btn.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.on { background: #234733; border-color: var(--ok); }
+.btn.danger { background: #4a2022; border-color: #8c3a3d; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.grp { border: 1px solid var(--line); border-radius: 3px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.grp > .gl { font-size: 11px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 520px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.sp { display: flex; align-items: center; gap: 8px; }
+.sp input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.sp output { font-family: var(--num); min-width: 64px; text-align: right; }
+.ind { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dim); }
+.ind i { width: 10px; height: 10px; border-radius: 50%; background: var(--off); border: 1px solid var(--line2); }
+.ind.on i { background: var(--ok); }
+.ind.mv i { background: var(--warn); }
+select.in, input.in { background: var(--inset); border: 1px solid var(--line2); border-radius: 3px; padding: 5px 7px; min-width: 0; }
+input.in[type=number] { font-family: var(--num); }
+.msg { font-size: 13px; color: var(--warn); min-height: 18px; }
+
+/* Sequência */
+.seq { width: 100%; border-collapse: collapse; font-size: 13px; }
+.seq th, .seq td { padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.seq th { color: var(--dim); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.seq td.n { font-family: var(--num); color: var(--dim); }
+.seq tr.cur { background: #1f3a4d; }
+.seq tr.cur td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.seq tr.done td { color: var(--faint); }
+.scroll { overflow-x: auto; }
+.prog { font-family: var(--num); font-size: 12px; }
+
+.mini canvas { width: 100%; height: 150px; display: block; }
+
+/* Receitas */
+.rec { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 900px) { .rec { grid-template-columns: minmax(0, 1fr); } }
+.rlist { display: flex; flex-direction: column; }
+.ritem { text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; cursor: pointer; }
+.ritem:hover { background: var(--panel2); }
+.ritem[aria-current="true"] { background: var(--panel2); box-shadow: inset 3px 0 0 var(--accent); }
+.ritem b { display: block; font-weight: 600; }
+.ritem span { font-size: 12px; color: var(--dim); }
+.ritem .act { color: var(--ok); }
+.hdr { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.fld { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fld label { font-size: 11px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+.fld.wide { grid-column: 1 / -1; }
+.steps td { padding: 3px 4px; }
+.steps .in { width: 100%; }
+.steps td.k input { width: 70px; }
+.steps .num { width: 70px; }
+.calc { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--dim); }
+.calc b { font-family: var(--num); color: var(--fg); font-weight: 500; }
+.calc .bad { color: var(--warn); }
+textarea.in { width: 100%; min-height: 120px; background: var(--inset); border: 1px solid var(--line2); border-radius: 3px; padding: 8px; font-family: var(--num); font-size: 12px; }
+.note { font-size: 13px; color: var(--dim); max-width: 70ch; }
+
+/* Gráficos */
+.trend-tools { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; }
+.chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.chk input { accent-color: var(--accent); }
+.sw { display: inline-block; width: 14px; height: 3px; border-radius: 1px; }
+.chart { position: relative; }
+.chart canvas { width: 100%; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--dim); }
+.legend .dash { display: inline-block; width: 16px; border-top: 2px dashed var(--dim); vertical-align: middle; }
+
+/* Alarmes e histórico */
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th, .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.tbl th { color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; white-space: nowrap; }
+.tbl td.n { font-family: var(--num); white-space: nowrap; }
+.sev { display: inline-block; padding: 1px 6px; border-radius: 2px; font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+.sev.crit { background: var(--alarm); color: #fff; } .sev.warn { background: var(--warn); color: #241a00; } .sev.info { background: var(--panel2); color: var(--dim); }
+tr.unack td { color: var(--fg); font-weight: 600; }
+tr.cleared td { color: var(--dim); }
+.grade { font-weight: 700; } .grade.ok { color: var(--ok); } .grade.wn { color: var(--warn); } .grade.bad { color: var(--alarm); }
+.two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
+
+/* Banner de alarme */
+.banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--inset); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.banner-in { display: flex; align-items: center; gap: 10px; padding-block: 8px; font-size: 14px; }
+.banner.crit { background: #3b1416; border-top-color: var(--alarm); }
+.banner.warn { background: #3a2c0c; border-top-color: var(--warn); }
+.banner.blink .bt { animation: blink 1s steps(2) infinite; }
+.banner .bt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes blink { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .estop.on, .banner.blink .bt { animation: none; } }
+
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(60px + env(safe-area-inset-bottom, 0px)); z-index: 7; background: var(--panel2); border: 1px solid var(--warn); padding: 8px 12px; border-radius: 3px; max-width: min(420px, calc(100vw - 32px)); font-size: 14px; }
+.ev { font-size: 12px; font-family: var(--num); color: var(--dim); max-height: 160px; overflow-y: auto; }
+.ev div { padding: 2px 0; border-bottom: 1px dotted var(--line); }
+.ev b { color: var(--fg); font-weight: 500; }
+
+/* Painel de comando (botoeira física) */
+.cp-wrap { overflow-x: auto; margin-top: 12px; }
+.cpanel { min-width: 1040px; background: radial-gradient(120% 90% at 30% 20%, #a3aca7 0%, #8b958f 55%, #7b847f 100%); border: 1px solid #5b635f; border-radius: 6px; padding: 18px 18px 22px; box-shadow: inset 0 2px 0 rgba(255,255,255,.18), inset 0 -3px 8px rgba(0,0,0,.25); }
+.cp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; color: #26302b; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
+.cp-head span:last-child { font-weight: 500; letter-spacing: .02em; text-transform: none; color: #2f3a34; }
+.cp-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 16px 12px; justify-items: center; }
+.cp-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+.plate { width: 100%; max-width: 128px; min-height: 30px; display: flex; align-items: center; justify-content: center; text-align: center; background: linear-gradient(180deg, #f1f3f2, #c4c9c8); color: #3a3f3d; border: 1px solid #8d9391; border-radius: 2px; font-size: 9.5px; line-height: 1.1; letter-spacing: .04em; text-transform: uppercase; padding: 3px 4px; font-weight: 600; box-shadow: 0 2px 3px rgba(0,0,0,.25); }
+.pbtn { --c: #888; width: 58px; height: 58px; border-radius: 50%; border: 0; padding: 6px; cursor: pointer; background: radial-gradient(circle at 35% 30%, #f4f6f7, #9aa1a6 45%, #5d646a 75%, #c9cfd3 100%); box-shadow: 0 4px 6px rgba(0,0,0,.45), 6px 10px 14px rgba(0,0,0,.25); display: grid; place-items: center; }
+.pbtn .lens { width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle at 38% 32%, rgba(255,255,255,.55), transparent 35%), var(--c); filter: brightness(.42) saturate(.7); border: 2px solid rgba(0,0,0,.35); transition: filter .12s; }
+.pbtn.lit .lens { filter: brightness(1.08) saturate(1.1); box-shadow: 0 0 14px 3px var(--c), inset 0 0 8px rgba(255,255,255,.5); }
+.pbtn.blink .lens { animation: lensblink 1s steps(2) infinite; }
+@keyframes lensblink { 0% { filter: brightness(1.08) saturate(1.1); box-shadow: 0 0 14px 3px var(--c); } 50% { filter: brightness(.42) saturate(.7); box-shadow: none; } }
+.pbtn:active { transform: translateY(2px) scale(.98); }
+.selsw { position: relative; width: 124px; height: 112px; background: #151617; border-radius: 9px; box-shadow: 0 5px 8px rgba(0,0,0,.45), inset 0 0 0 6px #0d0d0e, inset 0 0 0 7px #b9bdbf; user-select: none; }
+.selsw .pl { position: absolute; font-size: 9px; color: #c9cdd0; letter-spacing: .03em; text-transform: uppercase; background: none; border: 0; padding: 2px; cursor: pointer; white-space: nowrap; }
+.selsw .pl.act { color: #fff; text-decoration: underline; }
+.selsw .knob { position: absolute; left: 50%; top: 62%; width: 30px; height: 70px; margin: -35px 0 0 -15px; border-radius: 14px 14px 10px 10px; background: linear-gradient(90deg, #1c1d1f, #3a3c3f 45%, #141516); box-shadow: 0 3px 5px rgba(0,0,0,.7); transition: transform .18s; cursor: pointer; border: 0; padding: 0; }
+.selsw .knob::after { content: ""; position: absolute; left: 50%; top: 8px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: #050505; box-shadow: inset 0 1px 1px rgba(255,255,255,.2); }
+.selsw .ring { position: absolute; left: 50%; top: 62%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: #0c0c0d; box-shadow: inset 0 1px 2px rgba(255,255,255,.1); }
+.cp-sep { grid-column: 1 / -1; height: 4px; }
+.cp-flex { display: flex; gap: 22px; align-items: flex-start; }
+.cp-flex .cp-grid { flex: 1; min-width: 0; }
+.cp-side { display: flex; flex-direction: column; gap: 18px; width: 150px; flex: none; }
+.cp-box { background: linear-gradient(160deg, #50575b, #2f3437); border: 1px solid #1f2326; border-radius: 6px; padding: 14px 10px; display: flex; flex-direction: column; gap: 14px; align-items: center; box-shadow: 0 6px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.12); }
+.selsw.key .ring { background: #e3c22b; box-shadow: 0 0 0 4px #b8961a, inset 0 0 0 10px #c9ccce; }
+.selsw.key .knob { width: 14px; height: 46px; margin: -23px 0 0 -7px; border-radius: 4px 4px 2px 2px; background: linear-gradient(90deg, #8d9399, #e6e9ec 50%, #7e848a); }
+.selsw.key .knob::after { display: none; }
+.rpm7 { position: relative; background: #101213; border: 3px solid #2a2e31; border-radius: 3px; padding: 4px 10px; font-family: var(--num); font-size: 30px; line-height: 1; color: #63ff7a; text-shadow: 0 0 6px rgba(99,255,122,.7); letter-spacing: .08em; font-style: italic; display: flex; align-items: baseline; gap: 4px; }
+.rpm7 .ghost { position: absolute; left: 10px; color: rgba(99,255,122,.07); text-shadow: none; }
+.rpm7 small { font-size: 9px; font-style: normal; color: #8bd79a; text-shadow: none; }
+.dial { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: grab; touch-action: none; border-radius: 50%; }
+.dial.auto { cursor: not-allowed; }
+.dial-read { display: flex; gap: 8px; font-family: var(--num); font-size: 10px; color: #1d2621; background: #e9ecea; border: 1px solid #7c837f; padding: 1px 6px; border-radius: 2px; }
+.dial-read b { font-size: 12px; }
+.cp-msg { margin-top: 12px; min-height: 20px; font-size: 13px; color: #1d2621; font-weight: 600; }
+.jet-on { fill: var(--ok); }
+
+/* Réplica das telas da IHM real (supervisório claro) */
+:root { --h-bg: #e4e6e2; --h-panel: #f6f7f4; --h-line: #a9aea8; --h-ink: #1c2230; --h-dim: #5b6372; --h-blue: #2f6fc0; --h-blue2: #dce8f7;
+  --h-green: #a6dd7c; --h-green-ink: #3c6b2a; --h-pink: #f2c4c6; --h-pink-ink: #8a4fa8; --h-yellow: #f4e66e; --h-red: #ef9a9a; --h-temp: #5a63d8; }
+.hmi { background: var(--h-bg); color: var(--h-ink); border: 1px solid #6f746e; border-radius: 4px; margin-bottom: 12px; font-family: var(--ui); }
+.hmi-top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--h-line); font-size: 14px; color: var(--h-dim); }
+.hin { background: #fff; color: var(--h-ink); border: 1px solid var(--h-line); border-radius: 2px; padding: 3px 6px; font-size: 14px; }
+.hnum { font-family: var(--num); }
+.hbtn { background: linear-gradient(#fdfdfd, #d6d9d4); color: var(--h-ink); border: 1px solid #8d928c; border-radius: 3px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.hmi-body { display: grid; grid-template-columns: minmax(200px, 270px) minmax(0, 1fr); gap: 10px; padding: 10px; }
+@media (max-width: 860px) { .hmi-body { grid-template-columns: minmax(0, 1fr); } }
+.ptbl { width: 100%; border-collapse: collapse; background: #fff; font-size: 20px; }
+.ptbl th { font-size: 13px; color: var(--h-dim); text-align: left; padding: 4px 8px; border: 1px solid var(--h-line); background: var(--h-panel); letter-spacing: .06em; }
+.ptbl td { padding: 6px 8px; border: 1px solid var(--h-line); font-weight: 700; color: var(--h-pink-ink); }
+.ptbl td.n { text-align: center; font-family: var(--num); color: var(--h-pink-ink); }
+.ptbl tr.done td { background: var(--h-pink); }
+.ptbl tr.cur td { background: var(--h-yellow); color: #b35a1c; }
+.ptbl tr.pend td { color: #444; }
+.ptbl .x { background: none; border: 0; color: var(--h-dim); cursor: pointer; font-size: 14px; }
+.prog-add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.hmi-banner { display: flex; justify-content: space-between; align-items: flex-end; background: var(--h-green); color: var(--h-green-ink); padding: 6px 14px 4px; border: 1px solid #7fb35a; }
+.hmi-banner small { display: block; font-size: 15px; font-weight: 700; }
+.hmi-banner b { font-size: clamp(30px, 5vw, 54px); line-height: 1; font-family: var(--ui); letter-spacing: .02em; }
+.hmi-banner .r { text-align: right; }
+.hmi-banner.wait { background: #e8e3a0; border-color: #b9b25a; color: #6a6420; }
+.hmi-mx { overflow-x: auto; background: #fff; border: 1px solid var(--h-line); border-top: 0; }
+.mtbl { border-collapse: collapse; width: 100%; font-size: 13px; }
+.mtbl th, .mtbl td { border: 1px solid #d2d5d0; padding: 3px 6px; text-align: center; min-width: 40px; height: 24px; }
+.mtbl th { color: var(--h-dim); font-weight: 600; }
+.mtbl th.rl { text-align: left; white-space: nowrap; min-width: 110px; }
+.mtbl td.on { background: var(--h-red); }
+.mtbl td.v { font-family: var(--num); color: var(--h-dim); }
+.mtbl .cur { box-shadow: inset 0 0 0 2px var(--h-blue); }
+.mtbl th.cur { background: var(--h-blue); color: #fff; }
+.mtbl td.done { opacity: .45; }
+.mtbl tr.prog td { font-family: var(--num); font-size: 11px; color: var(--h-blue); height: 18px; }
+.hmi-foot { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.4fr); gap: 1px; background: var(--h-line); border: 1px solid var(--h-line); border-top: 0; }
+@media (max-width: 700px) { .hmi-foot { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.hmi-foot > div { background: #fff; padding: 4px 8px; min-width: 0; }
+.hmi-foot small { display: block; font-size: 12px; color: #4aa0b8; }
+.hmi-foot b { font-family: var(--num); font-size: 20px; color: var(--h-dim); font-weight: 500; white-space: nowrap; }
+.hmi-foot .big b { font-size: 38px; color: var(--h-temp); font-family: var(--ui); font-weight: 700; }
+/* Ficha Mixing Process */
+.sheet-wrap { overflow-x: auto; padding: 10px; }
+.sheet { min-width: 980px; background: #fbfbf8; color: #222; border: 1px solid #999; padding: 14px; font-family: 'Arial Narrow', var(--ui); }
+.sheet table { border-collapse: collapse; }
+.sheet td, .sheet th { border: 1px solid #555; padding: 2px 5px; font-size: 13px; color: #333; font-weight: 500; }
+.sheet th { font-weight: 600; text-transform: uppercase; color: #444; }
+.sheet input, .sheet select { width: 100%; min-width: 0; border: 0; background: transparent; font: inherit; color: #1a1a1a; padding: 1px 2px; text-align: center; }
+.sheet input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+.sheet input[type=number]::-webkit-inner-spin-button, .sheet input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.sheet select { -webkit-appearance: none; appearance: none; cursor: pointer; }
+.sheet .wsel { min-width: 104px; }
+.sheet .tsel { min-width: 74px; }
+.sheet input:focus, .sheet select:focus { background: #fff6c8; outline: 1px solid #c9a600; }
+.sheet .title { display: grid; grid-template-columns: 220px 1fr 180px; align-items: end; gap: 10px; margin-bottom: 4px; }
+.sheet .title .mixer { border: 1px solid #555; font-size: 28px; font-weight: 700; padding: 0 8px; }
+.sheet .title h3 { margin: 0; font-size: 40px; text-align: center; border-bottom: 3px solid #333; font-family: var(--ui); font-weight: 700; }
+.sheet .cmp input { font-size: 38px; font-weight: 700; text-align: center; }
+.sheet .grid-a { display: grid; grid-template-columns: 1.1fr .9fr; gap: 12px; margin-top: 10px; align-items: start; }
+.sheet .mx td { width: 44px; text-align: center; }
+.sheet .mx th.rl { text-align: left; width: 150px; }
+.sheet .mx td.flag { cursor: pointer; font-family: var(--num); font-weight: 700; }
+.sheet .mx td.flag:hover { background: #eef3ff; }
+.sheet .mx td.flag.on { color: #000; }
+.sheet .mx input { font-family: var(--num); }
+.sheet .mx select { padding: 0; }
+.sheet .small td { width: auto; }
+.sheet .kv td:first-child { text-align: left; }
+.sheet .kv td:last-child { width: 90px; }
+/* Gráfico supervisório */
+.trh .tr-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; background: var(--h-blue); color: #fff; padding: 6px 12px; }
+.trh .tl { font-size: clamp(18px, 3vw, 30px); }
+.trh .tc { background: #e9ecef; color: #222; font-size: clamp(20px, 3.4vw, 34px); padding: 0 16px; min-width: 200px; font-weight: 600; }
+.trh .tb { font-size: clamp(16px, 2.6vw, 28px); font-family: var(--num); }
+.tr-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.tr-fs { border: 1px solid var(--h-line); border-radius: 3px; padding: 4px 8px 8px; margin: 0; min-width: 0; }
+.tr-fs legend { color: var(--h-dim); font-size: 13px; padding: 0 4px; }
+.tr-leg { display: flex; flex-wrap: wrap; gap: 8px; }
+.tr-leg label { display: inline-flex; align-items: center; gap: 6px; border: 2px solid #9aa09a; background: #fff; padding: 4px 10px; font-size: 14px; cursor: pointer; border-radius: 2px; }
+.tr-leg label i { display: inline-block; width: 18px; height: 3px; }
+.tr-info { border-collapse: collapse; font-size: 14px; width: 100%; }
+.tr-info th { background: #c9cfd7; color: #333; font-weight: 500; padding: 3px 8px; border: 1px solid #9aa; white-space: nowrap; }
+.tr-info td { background: #f6efc0; padding: 3px 8px; border: 1px solid #b9b9a0; text-align: right; font-family: var(--num); white-space: nowrap; }
+.tr-info td:first-child { text-align: center; }
+.tr-chartrow { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 8px; }
+@media (max-width: 700px) { .tr-chartrow { grid-template-columns: minmax(0, 1fr); } }
+.tr-chart { background: #fff; border: 1px solid var(--h-line); min-width: 0; }
+.tr-chart canvas { width: 100%; display: block; cursor: crosshair; }
+.tr-side { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--h-dim); }
+.tr-win { display: flex; flex-direction: column; gap: 2px; }
+.tr-win input { font-size: 22px; width: 100%; }
+.tr-sel { display: flex; flex-direction: column; gap: 2px; }
+.tr-scroll { width: 100%; accent-color: #556; }
+.fkeys { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 2px; padding: 6px 10px 10px; overflow-x: auto; }
+@media (max-width: 860px) { .fkeys { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.fk { background: linear-gradient(#f4f5f3, #cfd3cd); border: 1px solid #9aa09a; border-radius: 2px; padding: 0 0 6px; cursor: pointer; color: #333; display: flex; flex-direction: column; align-items: center; min-height: 64px; font-size: 12px; }
+.fk i { font-style: normal; display: block; width: 100%; background: #d9dcd7; border-bottom: 1px solid #a8ada7; padding: 2px 0; margin-bottom: 6px; color: #555; }
+.fk:disabled { cursor: default; color: #999; }
+.fk.on { background: linear-gradient(#dfeafa, #b5c9e6); }
+</style>
+
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand"><b>No. 1 MIXER</b><span>Misturador interno · simulador de treinamento</span></div>
+    <span class="pill mode-auto" id="pMode">Automático</span>
+    <span class="pill" id="pState"><span class="dot"></span><span id="pStateT">Parado</span></span>
+    <div class="meta">
+      <span>Receita <b id="mRec">—</b></span>
+      <span>Batelada <b id="mBatch">0</b></span>
+      <span>Etapa <b id="mStep">—</b></span>
+      <span>Hora <b id="mClock">--:--:--</b></span>
+    </div>
+    <div class="spacer"></div>
+    <label class="speed" for="speed">Velocidade
+      <select id="speed">
+        <option value="0">Pausado</option><option value="1" selected>1×</option><option value="2">2×</option>
+        <option value="5">5×</option><option value="10">10×</option><option value="20">20×</option>
+      </select>
+    </label>
+    <button class="estop" id="estop" type="button">Emergência</button>
+  </div>
+  <nav class="wrap tabs" role="tablist">
+    <button class="tab" role="tab" data-v="op" aria-selected="true">Operação</button>
+    <button class="tab" role="tab" data-v="rec" aria-selected="false">Receitas</button>
+    <button class="tab" role="tab" data-v="tr" aria-selected="false">Gráficos</button>
+    <button class="tab" role="tab" data-v="gr" aria-selected="false">Análise</button>
+    <button class="tab" role="tab" data-v="al" aria-selected="false">Alarmes<span class="badge" id="alBadge" hidden>0</span></button>
+    <button class="tab" role="tab" data-v="hi" aria-selected="false">Bateladas</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <!-- OPERAÇÃO -->
+  <section class="view" id="v-op">
+    <div class="hmi" id="hmiOp">
+      <div class="hmi-top">
+        <label>Nome do operador <input id="opName" class="hin" style="width:220px" autocomplete="off"></label>
+        <label>Grupo <select id="opGrp" class="hin"><option>A</option><option>B</option><option selected>C</option><option>D</option></select></label>
+        <label>Turno <select id="opTurn" class="hin"><option>1</option><option>2</option><option selected>3</option></select></label>
+        <span class="spacer"></span><span id="opClock" class="hnum"></span>
+      </div>
+      <div class="hmi-body">
+        <div class="hmi-prog">
+          <table class="ptbl" id="progTbl"></table>
+          <div class="prog-add">
+            <select id="progRec" class="hin" aria-label="Composto"></select>
+            <input id="progQty" class="hin hnum" type="number" min="1" max="999" value="10" style="width:64px" aria-label="Quantidade de batches">
+            <button class="hbtn" id="progAdd" type="button">Programar</button>
+            <button class="hbtn" id="progClear" type="button">Limpar concluídos</button>
+          </div>
+        </div>
+        <div class="hmi-main">
+          <div class="hmi-banner" id="hbBox"><div><small>Composto</small><b id="hbComp">—</b></div><div class="r"><small>BATCH</small><b id="hbBatch">0/0</b></div></div>
+          <div class="hmi-mx"><table class="mtbl" id="mxTbl"></table></div>
+          <div class="hmi-foot">
+            <div><small>Carbono</small><b id="hfC">0,0 kg</b></div>
+            <div><small>Óleo</small><b id="hfO">0,0 kg</b></div>
+            <div><small>Tempo</small><b id="hfT">0:00</b></div>
+            <div><small>PI</small><b id="hfPI">0,0 kWh</b></div>
+            <div><small>Temp. guard</small><b id="hfG" style="font-size:15px">Máx — · Mín —</b></div>
+            <div class="big"><small>Temperatura</small><b id="hfTemp">0 °C</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="op">
+      <div class="panel syn">
+        <div class="ph"><span>Sinótico do misturador</span><span id="synInfo"></span></div>
+        <svg viewBox="0 0 560 640" role="img" aria-label="Sinótico do misturador interno com pistão, porta de carga, câmara, rotores e porta de descarga">
+          <defs>
+            <linearGradient id="gMetal" x1="0" x2="1"><stop offset="0" stop-color="#4d565e"/><stop offset=".5" stop-color="#717c86"/><stop offset="1" stop-color="#4d565e"/></linearGradient>
+            <pattern id="gBlack" width="6" height="6" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#3a3f44"/><circle cx="2" cy="2" r="1.2" fill="#0b0c0d"/><circle cx="5" cy="5" r="1" fill="#0b0c0d"/></pattern>
+          </defs>
+          <!-- cilindro pneumático -->
+          <rect x="245" y="14" width="70" height="92" rx="4" fill="url(#gMetal)" stroke="#2a3036"/>
+          <rect x="250" y="20" width="60" height="80" fill="#1d2226"/>
+          <rect id="ramPiston" x="252" y="22" width="56" height="10" fill="#9aa5ae"/>
+          <text x="325" y="34" class="tagl">CILINDRO</text>
+          <text x="325" y="50" class="tagv" id="tPress">0,0 bar</text>
+          <rect id="ramRod" x="275" y="100" width="10" height="30" fill="#aab4bc"/>
+          <!-- garganta -->
+          <rect x="208" y="118" width="144" height="190" fill="#1a1e22" stroke="var(--line2)"/>
+          <!-- tremonha / porta de carga -->
+          <path d="M70 150 L200 190 L200 262 L120 262 L70 210 Z" fill="#2b3136" stroke="var(--line2)"/>
+          <path id="hopFill" d="M90 200 L196 222 L196 258 L122 258 L90 228 Z" fill="var(--metal2)" opacity="0"/>
+          <text x="84" y="142" class="tagl">TREMONHA</text>
+          <circle id="jetLamp" cx="150" cy="118" r="5" fill="var(--off)"/><text x="160" y="122" class="tagl">JATO DE AR</text>
+          <text x="84" y="282" class="tagv" id="tHop" style="font-size:12px">vazia</text>
+          <g id="feedDoor"><rect x="198" y="190" width="10" height="72" fill="#8a949d"/></g>
+          <circle id="feedLamp" cx="203" cy="180" r="5" fill="var(--off)"/>
+          <text x="84" y="300" class="tagl">PORTA DE CARGA</text>
+          <text x="84" y="316" class="tagv" id="tFeed" style="font-size:13px">FECHADA</text>
+          <!-- peso do pistão -->
+          <g id="ram"><rect x="212" y="0" width="136" height="64" rx="2" fill="url(#gMetal)" stroke="#2a3036"/>
+            <rect x="222" y="10" width="116" height="6" fill="#3c444b"/><text x="280" y="44" text-anchor="middle" class="tagl" style="fill:#1b1f23;font-weight:700">PISTÃO</text></g>
+          <!-- corpo da câmara -->
+          <rect x="96" y="300" width="368" height="196" rx="10" fill="url(#gMetal)" stroke="#2a3036"/>
+          <circle cx="200" cy="398" r="84" fill="var(--cavity)"/>
+          <circle cx="360" cy="398" r="84" fill="var(--cavity)"/>
+          <rect x="200" y="330" width="160" height="136" fill="var(--cavity)"/>
+          <rect x="212" y="300" width="136" height="40" fill="var(--cavity)"/>
+          <g id="mat" opacity="0">
+            <circle cx="200" cy="398" r="80" fill="url(#gBlack)"/><circle cx="360" cy="398" r="80" fill="url(#gBlack)"/>
+            <rect x="200" y="334" width="160" height="128" fill="url(#gBlack)"/>
+            <rect id="matTint" x="116" y="314" width="328" height="168" fill="#f27a4a" opacity="0" style="mix-blend-mode:screen"/>
+          </g>
+          <g id="rotL" transform="translate(200 398)"><path d="M-70,-10 C-35,-34 -10,-12 0,0 C10,12 35,34 70,10 C40,28 12,14 0,0 C-12,-14 -40,-28 -70,-10Z" fill="#a8b2ba" stroke="#2a3036"/><circle r="15" fill="#7a858f" stroke="#2a3036"/></g>
+          <g id="rotR" transform="translate(360 398)"><path d="M-70,10 C-35,34 -10,12 0,0 C10,-12 35,-34 70,-10 C40,-28 12,-14 0,0 C-12,14 -40,28 -70,10Z" fill="#a8b2ba" stroke="#2a3036"/><circle r="15" fill="#7a858f" stroke="#2a3036"/></g>
+          <text x="108" y="322" class="tagl" style="fill:#1b1f23;font-weight:700">CÂMARA 270 L</text>
+          <!-- termopar -->
+          <rect x="455" y="390" width="20" height="6" fill="#c9a24a"/>
+          <rect x="474" y="372" width="76" height="44" rx="2" fill="var(--inset)" stroke="var(--line2)"/>
+          <text x="480" y="386" class="tagl">TEMP.</text>
+          <text x="480" y="407" class="tagv" id="tTemp">0 °C</text>
+          <!-- rotores -->
+          <rect x="4" y="372" width="86" height="44" rx="2" fill="var(--inset)" stroke="var(--line2)"/>
+          <text x="10" y="386" class="tagl">ROTOR</text>
+          <text x="10" y="407" class="tagv" id="tRpm">0 rpm</text>
+          <circle id="motLamp" cx="80" cy="382" r="5" fill="var(--off)"/>
+          <!-- porta de descarga -->
+          <g id="dropDoor"><path d="M236 486 L324 486 L314 520 L246 520 Z" fill="#8a949d" stroke="#2a3036"/></g>
+          <circle id="dropLamp" cx="344" cy="510" r="5" fill="var(--off)"/>
+          <text x="356" y="514" class="tagl">PORTA DE DESCARGA</text>
+          <text x="356" y="530" class="tagv" id="tDrop" style="font-size:13px">FECHADA</text>
+          <!-- moinho / batch-off -->
+          <g id="falling" opacity="0"><rect x="262" y="520" width="36" height="56" fill="url(#gBlack)"/></g>
+          <rect x="140" y="580" width="280" height="12" rx="6" fill="#3c444b"/>
+          <circle cx="230" cy="608" r="20" fill="#59636c" stroke="#2a3036"/><circle cx="330" cy="608" r="20" fill="#59636c" stroke="#2a3036"/>
+          <rect id="pile" x="200" y="580" width="160" height="0" fill="url(#gBlack)"/>
+          <text x="430" y="596" class="tagl">MOINHO</text>
+          <text x="430" y="612" class="tagv" id="tPile" style="font-size:12px">0 kg</text>
+          <!-- posição do pistão -->
+          <rect x="370" y="128" width="10" height="170" fill="var(--inset)" stroke="var(--line2)"/>
+          <rect id="posBar" x="371" y="129" width="8" height="0" fill="var(--pen-pos)"/>
+          <text x="388" y="140" class="tagl">POSIÇÃO PISTÃO</text>
+          <text x="388" y="160" class="tagv" id="tPos">0 %</text>
+          <text x="388" y="180" class="tagl" id="tRamCmd">COMANDO: SUBIR</text>
+          <circle id="ramDownLamp" cx="394" cy="200" r="5" fill="var(--off)"/><text x="404" y="204" class="tagl">EM BAIXO</text>
+          <circle id="ramUpLamp" cx="394" cy="220" r="5" fill="var(--off)"/><text x="404" y="224" class="tagl">EM CIMA</text>
+        </svg>
+      </div>
+
+      <div class="side">
+        <div class="panel">
+          <div class="ph"><span>Variáveis de processo</span><span id="pvMass"></span></div>
+          <div class="pv">
+            <div class="pvc" id="cT"><div class="l">Temperatura</div><div class="v"><span id="vT">0</span><small>°C</small></div><div class="sub" id="vTsp">SP descarga —</div><div class="bar"><i id="bT"></i><span class="mk" id="mkT"></span></div></div>
+            <div class="pvc" id="cP"><div class="l">Potência</div><div class="v"><span id="vP">0</span><small>kW</small></div><div class="sub" id="vPpk">pico 0 kW</div><div class="bar"><i id="bP"></i></div></div>
+            <div class="pvc"><div class="l">Energia</div><div class="v"><span id="vE">0,0</span><small>kWh</small></div><div class="sub" id="vEkg">0,000 kWh/kg</div><div class="bar"><i id="bE"></i><span class="mk" id="mkE" hidden></span></div></div>
+            <div class="pvc"><div class="l">Rotor</div><div class="v"><span id="vR">0</span><small>rpm</small></div><div class="sub" id="vRsp">SP 0 rpm</div><div class="bar"><i id="bR"></i></div></div>
+            <div class="pvc"><div class="l">Pressão pistão</div><div class="v"><span id="vPr">0,0</span><small>bar</small></div><div class="sub" id="vPrsp">SP 0,0 bar</div><div class="bar"><i id="bPr"></i></div></div>
+            <div class="pvc"><div class="l">Posição pistão</div><div class="v"><span id="vPos">0</span><small>%</small></div><div class="sub" id="vPosmm">0 mm</div><div class="bar"><i id="bPos"></i></div></div>
+            <div class="pvc"><div class="l">Tempo batelada</div><div class="v" id="vBt">00:00</div><div class="sub" id="vSt">etapa 00:00</div></div>
+            <div class="pvc" id="cFF"><div class="l">Fator enchimento</div><div class="v" id="vFF">0,00</div><div class="sub">janela 0,65 a 0,80</div></div>
+            <div class="pvc"><div class="l">Dispersão (índice)</div><div class="v"><span id="vD">0</span><small>%</small></div><div class="sub" id="vInc">negro livre 0 kg</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><span id="ctlTitle">Comando automático</span>
+            <span class="row"><button class="btn" id="bModeAuto" type="button">Automático</button><button class="btn" id="bModeMan" type="button">Manual</button></span></div>
+          <div class="pb ctl" id="ctlAuto">
+            <div class="row">
+              <button class="btn pri" id="bStart" type="button">Iniciar ciclo</button>
+              <button class="btn" id="bHold" type="button">Pausar sequência</button>
+              <button class="btn danger" id="bAbort" type="button">Descarregar agora</button>
+              <label class="chk"><input type="checkbox" id="cont" checked> Seguir a programação (ciclo contínuo)</label>
+            </div>
+            <div class="msg" id="autoMsg"></div>
+            <div class="note" id="seqNow" style="font-size:13px"></div>
+
+          </div>
+          <div class="pb ctl" id="ctlMan" hidden>
+            <div class="grid2">
+              <div class="grp"><div class="gl">Rotores</div>
+                <div class="row"><button class="btn" id="mRotOn" type="button">Ligar</button><button class="btn" id="mRotOff" type="button">Desligar</button><span class="ind" id="iRot"><i></i>Girando</span></div>
+                <div class="sp"><input type="range" id="mRpm" min="0" max="60" step="1" value="40" aria-label="Rotação setpoint"><output id="oRpm">40 rpm</output></div>
+              </div>
+              <div class="grp"><div class="gl">Pistão</div>
+                <div class="row"><button class="btn" id="mRamUp" type="button">Subir</button><button class="btn" id="mRamDn" type="button">Descer</button><span class="ind" id="iRam"><i></i>Em baixo</span></div>
+                <div class="sp"><input type="range" id="mPr" min="0" max="8" step="0.5" value="6" aria-label="Pressão setpoint"><output id="oPr">6,0 bar</output></div>
+              </div>
+              <div class="grp"><div class="gl">Porta de carga</div>
+                <div class="row"><button class="btn" id="mFeedOp" type="button">Abrir</button><button class="btn" id="mFeedCl" type="button">Fechar</button><span class="ind" id="iFeed"><i></i>Aberta</span></div>
+                <div class="row"><select class="in" id="mIng" aria-label="Ingrediente"></select><input class="in" type="number" id="mKg" value="50" min="0.5" max="250" step="0.5" style="width:80px" aria-label="Quantidade em kg"><button class="btn" id="mLoad" type="button">Pesar e enviar</button></div>
+              </div>
+              <div class="grp"><div class="gl">Porta de descarga</div>
+                <div class="row"><button class="btn" id="mDropOp" type="button">Abrir</button><button class="btn" id="mDropCl" type="button">Fechar</button><span class="ind" id="iDrop"><i></i>Aberta</span></div>
+                <div class="note" style="font-size:12px">Abra com os rotores girando para esvaziar a câmara.</div>
+              </div>
+            </div>
+            <div class="msg" id="manMsg"></div>
+          </div>
+        </div>
+
+        <div class="panel mini">
+          <div class="ph"><span>Tendência da batelada</span><span class="legend"><span><span class="sw" style="background:var(--pen-t)"></span> Temp.</span><span><span class="sw" style="background:var(--pen-p)"></span> Potência</span></span></div>
+          <canvas id="miniCv" height="150"></canvas>
+        </div>
+        <div class="panel">
+          <div class="ph"><span>Eventos da batelada</span></div>
+          <div class="pb ev" id="evList"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cp-wrap"><div class="cpanel" id="cpanel">
+      <div class="cp-head"><span>Painel de comando do misturador</span><span>Botões iluminados: aceso = ativo, piscando = aguardando o operador</span></div>
+      <div class="cp-flex"><div class="cp-grid" id="cpGrid"></div><div class="cp-side" id="cpSide"></div></div>
+      <div class="cp-msg" id="cpMsg"></div>
+    </div></div>
+  </section>
+
+  <!-- RECEITAS -->
+  <section class="view" id="v-rec" hidden>
+    <div class="rec">
+      <div class="panel">
+        <div class="ph"><span>Receitas</span></div>
+        <div class="rlist" id="rList"></div>
+        <div class="pb row"><button class="btn" id="rNew" type="button">Nova</button><button class="btn" id="rDup" type="button">Duplicar</button><button class="btn danger" id="rDel" type="button">Excluir</button></div>
+        <div class="pb row" style="padding-top:0"><button class="btn" id="rReset" type="button">Restaurar exemplos</button></div>
+        <div class="pb note" style="font-size:12px">Condição A: o passo termina no primeiro critério atingido (tempo, temperatura, PI ou rotação). Condição B: termina quando todos os critérios preenchidos forem atingidos.</div>
+      </div>
+      <div class="side">
+        <div class="panel">
+          <div class="ph"><span>Ficha Mixing Process</span><span class="row"><button class="btn" id="rToPlan" type="button">Programar no misturador</button><button class="btn pri" id="rPredict" type="button">Prever curvas</button></span></div>
+          <div class="sheet-wrap"><div class="sheet" id="sheet"></div></div>
+          <div class="pb calc" id="rCalc"></div>
+        </div>
+        <div class="panel">
+          <div class="ph"><span>Exportar / importar</span><span class="row"><button class="btn" id="rExport" type="button">Exportar receita</button><button class="btn" id="rCopy" type="button">Copiar</button><button class="btn" id="rImport" type="button">Importar do texto</button></span></div>
+          <div class="pb"><textarea class="in" id="rJson" aria-label="Receita em JSON" placeholder="Cole aqui uma receita em JSON e clique em Importar do texto."></textarea><div class="msg" id="rMsg"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GRÁFICOS (réplica do supervisório) -->
+  <section class="view" id="v-tr" hidden>
+    <div class="hmi trh">
+      <div class="tr-head"><span class="tl">Nome do composto</span><span class="tc" id="trComp">—</span><span class="tb" id="trBatch">[( — )]</span></div>
+      <div class="tr-body">
+        <fieldset class="tr-fs"><legend>Lenda</legend><div class="tr-leg" id="trLeg"></div></fieldset>
+        <fieldset class="tr-fs"><legend>Informação do Chart</legend><div class="scroll"><table class="tr-info" id="trInfo"></table></div></fieldset>
+        <div class="tr-chartrow">
+          <div class="tr-chart"><canvas id="trCv"></canvas></div>
+          <div class="tr-side">
+            <label class="tr-win">Janela (s)<input id="trWin" class="hin hnum" type="number" min="60" max="7200" step="30" value="450"></label>
+            <label class="chk" style="color:#223"><input type="checkbox" id="trFollow" checked> Tempo real</label>
+            <div class="tr-sel"><label for="trSelB">Selecionar batch</label><select id="trSelB" class="hin"></select></div>
+          </div>
+        </div>
+        <input type="range" id="trScroll" min="0" max="1000" value="1000" aria-label="Rolar no tempo" class="tr-scroll">
+      </div>
+      <div class="fkeys">
+        <button type="button" class="fk" disabled><i>F1</i><span>Imprimir</span></button>
+        <button type="button" class="fk" disabled><i>F2</i><span></span></button>
+        <button type="button" class="fk" disabled><i>F3</i><span></span></button>
+        <button type="button" class="fk" disabled><i>F4</i><span></span></button>
+        <button type="button" class="fk" id="fkPrev"><i>F5</i><span>◀ Anterior</span></button>
+        <button type="button" class="fk" id="fkNext"><i>F6</i><span>Próximo ▶</span></button>
+        <button type="button" class="fk" id="fkBPrev"><i>F7</i><span>Ir para Batch anterior</span></button>
+        <button type="button" class="fk" id="fkBNext"><i>F8</i><span>Ir para o próximo Batch</span></button>
+        <button type="button" class="fk" disabled><i>F9</i><span></span></button>
+        <button type="button" class="fk" id="fkMove"><i>F10</i><span>Movimentação do batch</span></button>
+        <button type="button" class="fk" id="fkSel"><i>F11</i><span>Selecionar batch</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- GRÁFICOS -->
+  <section class="view" id="v-gr" hidden>
+    <div class="panel">
+      <div class="ph"><span>Análise de batelada · <span id="grTitle">batelada atual</span></span><span id="grCursor" class="prog"></span></div>
+      <div class="pb trend-tools">
+        <label class="chk"><input type="checkbox" data-pane="T" checked><span class="sw" style="background:var(--pen-t)"></span>Temperatura</label>
+        <label class="chk"><input type="checkbox" data-pane="P" checked><span class="sw" style="background:var(--pen-p)"></span>Potência</label>
+        <label class="chk"><input type="checkbox" data-pane="E" checked><span class="sw" style="background:var(--pen-e)"></span>Energia</label>
+        <label class="chk"><input type="checkbox" data-pane="rpm" checked><span class="sw" style="background:var(--pen-rpm)"></span>Rotor</label>
+        <label class="chk"><input type="checkbox" data-pane="ram" checked><span class="sw" style="background:var(--pen-pr)"></span>Pistão (pressão e posição)</label>
+        <span class="spacer"></span>
+        <label class="ind" for="grShow">Mostrar</label>
+        <select class="in" id="grShow"><option value="cur">Batelada atual</option></select>
+        <label class="ind" for="grCmp">Comparar com</label>
+        <select class="in" id="grCmp"><option value="none">Nada</option><option value="prev">Batelada anterior</option><option value="pred">Previsão da receita</option></select>
+      </div>
+      <div class="pb" style="padding-top:0"><div class="legend"><span>Linhas verticais: troca de etapa</span><span><span class="dash"></span> comparação</span><span>Faixa sombreada: janela de descarga da receita</span></div></div>
+      <div class="chart pb" style="padding-top:0"><canvas id="trendCv"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ALARMES -->
+  <section class="view" id="v-al" hidden>
+    <div class="two">
+      <div class="panel">
+        <div class="ph"><span>Lista de alarmes</span><button class="btn" id="ackAll" type="button">Reconhecer todos</button></div>
+        <div class="scroll"><table class="tbl" id="alTbl"></table></div>
+      </div>
+      <div class="panel">
+        <div class="ph"><span>Painel do instrutor</span></div>
+        <div class="pb ctl">
+          <p class="note">Insira falhas durante a batelada para treinar a reação do operador.</p>
+          <label class="chk"><input type="checkbox" id="fAgua"> Falha na água de refrigeração (vazão baixa)</label>
+          <label class="chk"><input type="checkbox" id="fTerm"> Termopar descalibrado (lê 18 °C abaixo do real)</label>
+          <label class="chk"><input type="checkbox" id="fAr"> Pressão de ar baixa no cilindro (máx. 3 bar)</label>
+          <div class="grp"><div class="gl">Temperatura da água de refrigeração</div>
+            <div class="sp"><input type="range" id="fTw" min="20" max="70" step="1" value="40" aria-label="Temperatura da água"><output id="oTw">40 °C</output></div>
+          </div>
+          <p class="note">Com o termopar descalibrado a descarga por temperatura acontece tarde e a massa sai mais quente do que o painel mostra. Observe a energia e o tempo para perceber a falha.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BATELADAS -->
+  <section class="view" id="v-hi" hidden>
+    <div class="panel">
+      <div class="ph"><span>Bateladas produzidas</span><span class="note" style="font-size:12px">Clique numa linha para ver as curvas</span></div>
+      <div class="scroll"><table class="tbl" id="hiTbl"></table></div>
+    </div>
+  </section>
+</main>
+
+<div class="banner" id="banner"><div class="wrap banner-in"><span class="sev info" id="bnSev">OK</span><span class="bt" id="bnText">Sem alarmes ativos</span><button class="btn" id="bnAck" type="button" hidden>Reconhecer</button></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/*MODEL*/
+/*RECIPES*/
+/*UI*/
+</script>

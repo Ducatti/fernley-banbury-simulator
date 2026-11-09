@@ -1,0 +1,2145 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador No. 1 Mixer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: IHM de sala de controle em tom grafite (estilo ISA-101: cinza em operação normal, cor só para estado e alarme).
+   Barra de status fixa no topo, abas de tela, sinótico à esquerda e painel de valores à direita. */
+:root {
+  color-scheme: dark;
+  --bg: #1b1f23; --panel: #252a2f; --panel2: #2e343a; --inset: #15181b; --line: #3d454d; --line2: #4c565f;
+  --fg: #dfe4e8; --dim: #8f99a3; --faint: #5f6a74;
+  --accent: #5aa9d6; --accent-ink: #0d2230;
+  --ok: #46b873; --warn: #e3a72f; --alarm: #ec4f52; --off: #5d666e;
+  --pen-t: #f27a4a; --pen-p: #e6c84c; --pen-e: #b592f0; --pen-rpm: #52c48d; --pen-pr: #5ab4dc; --pen-pos: #c7cfd6;
+  --metal: #59636c; --metal2: #7a858f; --cavity: #101315;
+  --ui: 'Barlow Semi Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+  --num: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--ui); font-size: 15px; line-height: 1.35; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+@media (max-width: 700px) { .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); } }
+
+/* Barra superior */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--inset); }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--inset); border-bottom: 1px solid var(--line); }
+.top-in { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-block: 8px; }
+.brand { display: flex; flex-direction: column; line-height: 1.1; margin-right: 4px; }
+.brand b { font-size: 17px; letter-spacing: .04em; }
+.brand span { font-size: 12px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 3px; font-weight: 600; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line2); background: var(--panel); }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); }
+.pill.ok .dot { background: var(--ok); } .pill.warn .dot { background: var(--warn); } .pill.alarm .dot { background: var(--alarm); }
+.pill.mode-auto { background: #1f3a4d; border-color: var(--accent); }
+.pill.mode-man { background: #4a3a14; border-color: var(--warn); }
+.meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+.meta b { color: var(--fg); font-family: var(--num); font-weight: 500; }
+.spacer { flex: 1; }
+.speed { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
+.speed select { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 3px 6px; }
+.estop { background: #8c1d20; border: 2px solid #f0a0a0; color: #fff; font-weight: 700; letter-spacing: .06em; border-radius: 4px; padding: 6px 12px; cursor: pointer; text-transform: uppercase; font-size: 13px; }
+.estop.on { animation: blink 1s steps(2) infinite; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; }
+.tab { background: transparent; border: 0; border-bottom: 3px solid transparent; padding: 8px 14px; color: var(--dim); cursor: pointer; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; font-size: 13px; white-space: nowrap; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--alarm); color: #fff; font-size: 11px; text-align: center; }
+.tab .badge[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+main { padding-block: 12px 70px; }
+.view[hidden] { display: none !important; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+.ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.pb { padding: 10px; }
+
+/* Tela de operação */
+.op { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 980px) { .op { grid-template-columns: minmax(0, 1fr); } }
+.syn svg { width: 100%; height: auto; display: block; max-height: 640px; }
+.syn text { font-family: var(--ui); }
+.tagv { font-family: var(--num); font-size: 15px; fill: var(--fg); }
+.tagl { font-size: 11px; fill: var(--dim); letter-spacing: .08em; }
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+@media (max-width: 520px) { .pv { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pvc { background: var(--panel); padding: 8px 10px; min-width: 0; }
+.pvc .l { font-size: 11px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+.pvc .v { font-family: var(--num); font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.15; white-space: nowrap; }
+.pvc .v small { font-size: 12px; color: var(--dim); margin-left: 3px; }
+.pvc .sub { font-size: 12px; color: var(--dim); font-family: var(--num); }
+.bar { height: 5px; background: var(--inset); margin-top: 5px; position: relative; border-radius: 1px; }
+.bar i { position: absolute; inset: 0 auto 0 0; background: var(--metal2); border-radius: 1px; }
+.bar .mk { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); }
+.pvc.al .v { color: var(--alarm); } .pvc.wn .v { color: var(--warn); }
+
+.ctl { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 7px 12px; cursor: pointer; font-weight: 600; letter-spacing: .03em; font-size: 14px; }
+.btn:hover { border-color: var(--metal2); }
+.btn:active { transform: translateY(1px); }
+.btn.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.on { background: #234733; border-color: var(--ok); }
+.btn.danger { background: #4a2022; border-color: #8c3a3d; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.grp { border: 1px solid var(--line); border-radius: 3px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.grp > .gl { font-size: 11px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 520px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.sp { display: flex; align-items: center; gap: 8px; }
+.sp input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.sp output { font-family: var(--num); min-width: 64px; text-align: right; }
+.ind { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dim); }
+.ind i { width: 10px; height: 10px; border-radius: 50%; background: var(--off); border: 1px solid var(--line2); }
+.ind.on i { background: var(--ok); }
+.ind.mv i { background: var(--warn); }
+select.in, input.in { background: var(--inset); border: 1px solid var(--line2); border-radius: 3px; padding: 5px 7px; min-width: 0; }
+input.in[type=number] { font-family: var(--num); }
+.msg { font-size: 13px; color: var(--warn); min-height: 18px; }
+
+/* Sequência */
+.seq { width: 100%; border-collapse: collapse; font-size: 13px; }
+.seq th, .seq td { padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.seq th { color: var(--dim); font-weight: 600; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.seq td.n { font-family: var(--num); color: var(--dim); }
+.seq tr.cur { background: #1f3a4d; }
+.seq tr.cur td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.seq tr.done td { color: var(--faint); }
+.scroll { overflow-x: auto; }
+.prog { font-family: var(--num); font-size: 12px; }
+
+.mini canvas { width: 100%; height: 150px; display: block; }
+
+/* Receitas */
+.rec { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 900px) { .rec { grid-template-columns: minmax(0, 1fr); } }
+.rlist { display: flex; flex-direction: column; }
+.ritem { text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; cursor: pointer; }
+.ritem:hover { background: var(--panel2); }
+.ritem[aria-current="true"] { background: var(--panel2); box-shadow: inset 3px 0 0 var(--accent); }
+.ritem b { display: block; font-weight: 600; }
+.ritem span { font-size: 12px; color: var(--dim); }
+.ritem .act { color: var(--ok); }
+.hdr { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.fld { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fld label { font-size: 11px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+.fld.wide { grid-column: 1 / -1; }
+.steps td { padding: 3px 4px; }
+.steps .in { width: 100%; }
+.steps td.k input { width: 70px; }
+.steps .num { width: 70px; }
+.calc { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--dim); }
+.calc b { font-family: var(--num); color: var(--fg); font-weight: 500; }
+.calc .bad { color: var(--warn); }
+textarea.in { width: 100%; min-height: 120px; background: var(--inset); border: 1px solid var(--line2); border-radius: 3px; padding: 8px; font-family: var(--num); font-size: 12px; }
+.note { font-size: 13px; color: var(--dim); max-width: 70ch; }
+
+/* Gráficos */
+.trend-tools { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; }
+.chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.chk input { accent-color: var(--accent); }
+.sw { display: inline-block; width: 14px; height: 3px; border-radius: 1px; }
+.chart { position: relative; }
+.chart canvas { width: 100%; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--dim); }
+.legend .dash { display: inline-block; width: 16px; border-top: 2px dashed var(--dim); vertical-align: middle; }
+
+/* Alarmes e histórico */
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th, .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.tbl th { color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; white-space: nowrap; }
+.tbl td.n { font-family: var(--num); white-space: nowrap; }
+.sev { display: inline-block; padding: 1px 6px; border-radius: 2px; font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+.sev.crit { background: var(--alarm); color: #fff; } .sev.warn { background: var(--warn); color: #241a00; } .sev.info { background: var(--panel2); color: var(--dim); }
+tr.unack td { color: var(--fg); font-weight: 600; }
+tr.cleared td { color: var(--dim); }
+.grade { font-weight: 700; } .grade.ok { color: var(--ok); } .grade.wn { color: var(--warn); } .grade.bad { color: var(--alarm); }
+.two { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
+
+/* Banner de alarme */
+.banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--inset); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.banner-in { display: flex; align-items: center; gap: 10px; padding-block: 8px; font-size: 14px; }
+.banner.crit { background: #3b1416; border-top-color: var(--alarm); }
+.banner.warn { background: #3a2c0c; border-top-color: var(--warn); }
+.banner.blink .bt { animation: blink 1s steps(2) infinite; }
+.banner .bt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes blink { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .estop.on, .banner.blink .bt { animation: none; } }
+
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(60px + env(safe-area-inset-bottom, 0px)); z-index: 7; background: var(--panel2); border: 1px solid var(--warn); padding: 8px 12px; border-radius: 3px; max-width: min(420px, calc(100vw - 32px)); font-size: 14px; }
+.ev { font-size: 12px; font-family: var(--num); color: var(--dim); max-height: 160px; overflow-y: auto; }
+.ev div { padding: 2px 0; border-bottom: 1px dotted var(--line); }
+.ev b { color: var(--fg); font-weight: 500; }
+
+/* Painel de comando (botoeira física) */
+.cp-wrap { overflow-x: auto; margin-top: 12px; }
+.cpanel { min-width: 1040px; background: radial-gradient(120% 90% at 30% 20%, #a3aca7 0%, #8b958f 55%, #7b847f 100%); border: 1px solid #5b635f; border-radius: 6px; padding: 18px 18px 22px; box-shadow: inset 0 2px 0 rgba(255,255,255,.18), inset 0 -3px 8px rgba(0,0,0,.25); }
+.cp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; color: #26302b; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
+.cp-head span:last-child { font-weight: 500; letter-spacing: .02em; text-transform: none; color: #2f3a34; }
+.cp-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 16px 12px; justify-items: center; }
+.cp-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+.plate { width: 100%; max-width: 128px; min-height: 30px; display: flex; align-items: center; justify-content: center; text-align: center; background: linear-gradient(180deg, #f1f3f2, #c4c9c8); color: #3a3f3d; border: 1px solid #8d9391; border-radius: 2px; font-size: 9.5px; line-height: 1.1; letter-spacing: .04em; text-transform: uppercase; padding: 3px 4px; font-weight: 600; box-shadow: 0 2px 3px rgba(0,0,0,.25); }
+.pbtn { --c: #888; width: 58px; height: 58px; border-radius: 50%; border: 0; padding: 6px; cursor: pointer; background: radial-gradient(circle at 35% 30%, #f4f6f7, #9aa1a6 45%, #5d646a 75%, #c9cfd3 100%); box-shadow: 0 4px 6px rgba(0,0,0,.45), 6px 10px 14px rgba(0,0,0,.25); display: grid; place-items: center; }
+.pbtn .lens { width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle at 38% 32%, rgba(255,255,255,.55), transparent 35%), var(--c); filter: brightness(.42) saturate(.7); border: 2px solid rgba(0,0,0,.35); transition: filter .12s; }
+.pbtn.lit .lens { filter: brightness(1.08) saturate(1.1); box-shadow: 0 0 14px 3px var(--c), inset 0 0 8px rgba(255,255,255,.5); }
+.pbtn.blink .lens { animation: lensblink 1s steps(2) infinite; }
+@keyframes lensblink { 0% { filter: brightness(1.08) saturate(1.1); box-shadow: 0 0 14px 3px var(--c); } 50% { filter: brightness(.42) saturate(.7); box-shadow: none; } }
+.pbtn:active { transform: translateY(2px) scale(.98); }
+.selsw { position: relative; width: 124px; height: 112px; background: #151617; border-radius: 9px; box-shadow: 0 5px 8px rgba(0,0,0,.45), inset 0 0 0 6px #0d0d0e, inset 0 0 0 7px #b9bdbf; user-select: none; }
+.selsw .pl { position: absolute; font-size: 9px; color: #c9cdd0; letter-spacing: .03em; text-transform: uppercase; background: none; border: 0; padding: 2px; cursor: pointer; white-space: nowrap; }
+.selsw .pl.act { color: #fff; text-decoration: underline; }
+.selsw .knob { position: absolute; left: 50%; top: 62%; width: 30px; height: 70px; margin: -35px 0 0 -15px; border-radius: 14px 14px 10px 10px; background: linear-gradient(90deg, #1c1d1f, #3a3c3f 45%, #141516); box-shadow: 0 3px 5px rgba(0,0,0,.7); transition: transform .18s; cursor: pointer; border: 0; padding: 0; }
+.selsw .knob::after { content: ""; position: absolute; left: 50%; top: 8px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: #050505; box-shadow: inset 0 1px 1px rgba(255,255,255,.2); }
+.selsw .ring { position: absolute; left: 50%; top: 62%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%; background: #0c0c0d; box-shadow: inset 0 1px 2px rgba(255,255,255,.1); }
+.cp-sep { grid-column: 1 / -1; height: 4px; }
+.cp-flex { display: flex; gap: 22px; align-items: flex-start; }
+.cp-flex .cp-grid { flex: 1; min-width: 0; }
+.cp-side { display: flex; flex-direction: column; gap: 18px; width: 150px; flex: none; }
+.cp-box { background: linear-gradient(160deg, #50575b, #2f3437); border: 1px solid #1f2326; border-radius: 6px; padding: 14px 10px; display: flex; flex-direction: column; gap: 14px; align-items: center; box-shadow: 0 6px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.12); }
+.selsw.key .ring { background: #e3c22b; box-shadow: 0 0 0 4px #b8961a, inset 0 0 0 10px #c9ccce; }
+.selsw.key .knob { width: 14px; height: 46px; margin: -23px 0 0 -7px; border-radius: 4px 4px 2px 2px; background: linear-gradient(90deg, #8d9399, #e6e9ec 50%, #7e848a); }
+.selsw.key .knob::after { display: none; }
+.rpm7 { position: relative; background: #101213; border: 3px solid #2a2e31; border-radius: 3px; padding: 4px 10px; font-family: var(--num); font-size: 30px; line-height: 1; color: #63ff7a; text-shadow: 0 0 6px rgba(99,255,122,.7); letter-spacing: .08em; font-style: italic; display: flex; align-items: baseline; gap: 4px; }
+.rpm7 .ghost { position: absolute; left: 10px; color: rgba(99,255,122,.07); text-shadow: none; }
+.rpm7 small { font-size: 9px; font-style: normal; color: #8bd79a; text-shadow: none; }
+.dial { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: grab; touch-action: none; border-radius: 50%; }
+.dial.auto { cursor: not-allowed; }
+.dial-read { display: flex; gap: 8px; font-family: var(--num); font-size: 10px; color: #1d2621; background: #e9ecea; border: 1px solid #7c837f; padding: 1px 6px; border-radius: 2px; }
+.dial-read b { font-size: 12px; }
+.cp-msg { margin-top: 12px; min-height: 20px; font-size: 13px; color: #1d2621; font-weight: 600; }
+.jet-on { fill: var(--ok); }
+
+/* Réplica das telas da IHM real (supervisório claro) */
+:root { --h-bg: #e4e6e2; --h-panel: #f6f7f4; --h-line: #a9aea8; --h-ink: #1c2230; --h-dim: #5b6372; --h-blue: #2f6fc0; --h-blue2: #dce8f7;
+  --h-green: #a6dd7c; --h-green-ink: #3c6b2a; --h-pink: #f2c4c6; --h-pink-ink: #8a4fa8; --h-yellow: #f4e66e; --h-red: #ef9a9a; --h-temp: #5a63d8; }
+.hmi { background: var(--h-bg); color: var(--h-ink); border: 1px solid #6f746e; border-radius: 4px; margin-bottom: 12px; font-family: var(--ui); }
+.hmi-top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--h-line); font-size: 14px; color: var(--h-dim); }
+.hin { background: #fff; color: var(--h-ink); border: 1px solid var(--h-line); border-radius: 2px; padding: 3px 6px; font-size: 14px; }
+.hnum { font-family: var(--num); }
+.hbtn { background: linear-gradient(#fdfdfd, #d6d9d4); color: var(--h-ink); border: 1px solid #8d928c; border-radius: 3px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.hmi-body { display: grid; grid-template-columns: minmax(200px, 270px) minmax(0, 1fr); gap: 10px; padding: 10px; }
+@media (max-width: 860px) { .hmi-body { grid-template-columns: minmax(0, 1fr); } }
+.ptbl { width: 100%; border-collapse: collapse; background: #fff; font-size: 20px; }
+.ptbl th { font-size: 13px; color: var(--h-dim); text-align: left; padding: 4px 8px; border: 1px solid var(--h-line); background: var(--h-panel); letter-spacing: .06em; }
+.ptbl td { padding: 6px 8px; border: 1px solid var(--h-line); font-weight: 700; color: var(--h-pink-ink); }
+.ptbl td.n { text-align: center; font-family: var(--num); color: var(--h-pink-ink); }
+.ptbl tr.done td { background: var(--h-pink); }
+.ptbl tr.cur td { background: var(--h-yellow); color: #b35a1c; }
+.ptbl tr.pend td { color: #444; }
+.ptbl .x { background: none; border: 0; color: var(--h-dim); cursor: pointer; font-size: 14px; }
+.prog-add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.hmi-banner { display: flex; justify-content: space-between; align-items: flex-end; background: var(--h-green); color: var(--h-green-ink); padding: 6px 14px 4px; border: 1px solid #7fb35a; }
+.hmi-banner small { display: block; font-size: 15px; font-weight: 700; }
+.hmi-banner b { font-size: clamp(30px, 5vw, 54px); line-height: 1; font-family: var(--ui); letter-spacing: .02em; }
+.hmi-banner .r { text-align: right; }
+.hmi-banner.wait { background: #e8e3a0; border-color: #b9b25a; color: #6a6420; }
+.hmi-mx { overflow-x: auto; background: #fff; border: 1px solid var(--h-line); border-top: 0; }
+.mtbl { border-collapse: collapse; width: 100%; font-size: 13px; }
+.mtbl th, .mtbl td { border: 1px solid #d2d5d0; padding: 3px 6px; text-align: center; min-width: 40px; height: 24px; }
+.mtbl th { color: var(--h-dim); font-weight: 600; }
+.mtbl th.rl { text-align: left; white-space: nowrap; min-width: 110px; }
+.mtbl td.on { background: var(--h-red); }
+.mtbl td.v { font-family: var(--num); color: var(--h-dim); }
+.mtbl .cur { box-shadow: inset 0 0 0 2px var(--h-blue); }
+.mtbl th.cur { background: var(--h-blue); color: #fff; }
+.mtbl td.done { opacity: .45; }
+.mtbl tr.prog td { font-family: var(--num); font-size: 11px; color: var(--h-blue); height: 18px; }
+.hmi-foot { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.4fr); gap: 1px; background: var(--h-line); border: 1px solid var(--h-line); border-top: 0; }
+@media (max-width: 700px) { .hmi-foot { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.hmi-foot > div { background: #fff; padding: 4px 8px; min-width: 0; }
+.hmi-foot small { display: block; font-size: 12px; color: #4aa0b8; }
+.hmi-foot b { font-family: var(--num); font-size: 20px; color: var(--h-dim); font-weight: 500; white-space: nowrap; }
+.hmi-foot .big b { font-size: 38px; color: var(--h-temp); font-family: var(--ui); font-weight: 700; }
+/* Ficha Mixing Process */
+.sheet-wrap { overflow-x: auto; padding: 10px; }
+.sheet { min-width: 980px; background: #fbfbf8; color: #222; border: 1px solid #999; padding: 14px; font-family: 'Arial Narrow', var(--ui); }
+.sheet table { border-collapse: collapse; }
+.sheet td, .sheet th { border: 1px solid #555; padding: 2px 5px; font-size: 13px; color: #333; font-weight: 500; }
+.sheet th { font-weight: 600; text-transform: uppercase; color: #444; }
+.sheet input, .sheet select { width: 100%; min-width: 0; border: 0; background: transparent; font: inherit; color: #1a1a1a; padding: 1px 2px; text-align: center; }
+.sheet input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+.sheet input[type=number]::-webkit-inner-spin-button, .sheet input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.sheet select { -webkit-appearance: none; appearance: none; cursor: pointer; }
+.sheet .wsel { min-width: 104px; }
+.sheet .tsel { min-width: 74px; }
+.sheet input:focus, .sheet select:focus { background: #fff6c8; outline: 1px solid #c9a600; }
+.sheet .title { display: grid; grid-template-columns: 220px 1fr 180px; align-items: end; gap: 10px; margin-bottom: 4px; }
+.sheet .title .mixer { border: 1px solid #555; font-size: 28px; font-weight: 700; padding: 0 8px; }
+.sheet .title h3 { margin: 0; font-size: 40px; text-align: center; border-bottom: 3px solid #333; font-family: var(--ui); font-weight: 700; }
+.sheet .cmp input { font-size: 38px; font-weight: 700; text-align: center; }
+.sheet .grid-a { display: grid; grid-template-columns: 1.1fr .9fr; gap: 12px; margin-top: 10px; align-items: start; }
+.sheet .mx td { width: 44px; text-align: center; }
+.sheet .mx th.rl { text-align: left; width: 150px; }
+.sheet .mx td.flag { cursor: pointer; font-family: var(--num); font-weight: 700; }
+.sheet .mx td.flag:hover { background: #eef3ff; }
+.sheet .mx td.flag.on { color: #000; }
+.sheet .mx input { font-family: var(--num); }
+.sheet .mx select { padding: 0; }
+.sheet .small td { width: auto; }
+.sheet .kv td:first-child { text-align: left; }
+.sheet .kv td:last-child { width: 90px; }
+/* Gráfico supervisório */
+.trh .tr-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; background: var(--h-blue); color: #fff; padding: 6px 12px; }
+.trh .tl { font-size: clamp(18px, 3vw, 30px); }
+.trh .tc { background: #e9ecef; color: #222; font-size: clamp(20px, 3.4vw, 34px); padding: 0 16px; min-width: 200px; font-weight: 600; }
+.trh .tb { font-size: clamp(16px, 2.6vw, 28px); font-family: var(--num); }
+.tr-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.tr-fs { border: 1px solid var(--h-line); border-radius: 3px; padding: 4px 8px 8px; margin: 0; min-width: 0; }
+.tr-fs legend { color: var(--h-dim); font-size: 13px; padding: 0 4px; }
+.tr-leg { display: flex; flex-wrap: wrap; gap: 8px; }
+.tr-leg label { display: inline-flex; align-items: center; gap: 6px; border: 2px solid #9aa09a; background: #fff; padding: 4px 10px; font-size: 14px; cursor: pointer; border-radius: 2px; }
+.tr-leg label i { display: inline-block; width: 18px; height: 3px; }
+.tr-info { border-collapse: collapse; font-size: 14px; width: 100%; }
+.tr-info th { background: #c9cfd7; color: #333; font-weight: 500; padding: 3px 8px; border: 1px solid #9aa; white-space: nowrap; }
+.tr-info td { background: #f6efc0; padding: 3px 8px; border: 1px solid #b9b9a0; text-align: right; font-family: var(--num); white-space: nowrap; }
+.tr-info td:first-child { text-align: center; }
+.tr-chartrow { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 8px; }
+@media (max-width: 700px) { .tr-chartrow { grid-template-columns: minmax(0, 1fr); } }
+.tr-chart { background: #fff; border: 1px solid var(--h-line); min-width: 0; }
+.tr-chart canvas { width: 100%; display: block; cursor: crosshair; }
+.tr-side { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--h-dim); }
+.tr-win { display: flex; flex-direction: column; gap: 2px; }
+.tr-win input { font-size: 22px; width: 100%; }
+.tr-sel { display: flex; flex-direction: column; gap: 2px; }
+.tr-scroll { width: 100%; accent-color: #556; }
+.fkeys { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 2px; padding: 6px 10px 10px; overflow-x: auto; }
+@media (max-width: 860px) { .fkeys { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.fk { background: linear-gradient(#f4f5f3, #cfd3cd); border: 1px solid #9aa09a; border-radius: 2px; padding: 0 0 6px; cursor: pointer; color: #333; display: flex; flex-direction: column; align-items: center; min-height: 64px; font-size: 12px; }
+.fk i { font-style: normal; display: block; width: 100%; background: #d9dcd7; border-bottom: 1px solid #a8ada7; padding: 2px 0; margin-bottom: 6px; color: #555; }
+.fk:disabled { cursor: default; color: #999; }
+.fk.on { background: linear-gradient(#dfeafa, #b5c9e6); }
+</style>
+</head>
+<body>
+
+
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand"><b>No. 1 MIXER</b><span>Misturador interno · simulador de treinamento</span></div>
+    <span class="pill mode-auto" id="pMode">Automático</span>
+    <span class="pill" id="pState"><span class="dot"></span><span id="pStateT">Parado</span></span>
+    <div class="meta">
+      <span>Receita <b id="mRec">—</b></span>
+      <span>Batelada <b id="mBatch">0</b></span>
+      <span>Etapa <b id="mStep">—</b></span>
+      <span>Hora <b id="mClock">--:--:--</b></span>
+    </div>
+    <div class="spacer"></div>
+    <label class="speed" for="speed">Velocidade
+      <select id="speed">
+        <option value="0">Pausado</option><option value="1" selected>1×</option><option value="2">2×</option>
+        <option value="5">5×</option><option value="10">10×</option><option value="20">20×</option>
+      </select>
+    </label>
+    <button class="estop" id="estop" type="button">Emergência</button>
+  </div>
+  <nav class="wrap tabs" role="tablist">
+    <button class="tab" role="tab" data-v="op" aria-selected="true">Operação</button>
+    <button class="tab" role="tab" data-v="rec" aria-selected="false">Receitas</button>
+    <button class="tab" role="tab" data-v="tr" aria-selected="false">Gráficos</button>
+    <button class="tab" role="tab" data-v="gr" aria-selected="false">Análise</button>
+    <button class="tab" role="tab" data-v="al" aria-selected="false">Alarmes<span class="badge" id="alBadge" hidden>0</span></button>
+    <button class="tab" role="tab" data-v="hi" aria-selected="false">Bateladas</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <!-- OPERAÇÃO -->
+  <section class="view" id="v-op">
+    <div class="hmi" id="hmiOp">
+      <div class="hmi-top">
+        <label>Nome do operador <input id="opName" class="hin" style="width:220px" autocomplete="off"></label>
+        <label>Grupo <select id="opGrp" class="hin"><option>A</option><option>B</option><option selected>C</option><option>D</option></select></label>
+        <label>Turno <select id="opTurn" class="hin"><option>1</option><option>2</option><option selected>3</option></select></label>
+        <span class="spacer"></span><span id="opClock" class="hnum"></span>
+      </div>
+      <div class="hmi-body">
+        <div class="hmi-prog">
+          <table class="ptbl" id="progTbl"></table>
+          <div class="prog-add">
+            <select id="progRec" class="hin" aria-label="Composto"></select>
+            <input id="progQty" class="hin hnum" type="number" min="1" max="999" value="10" style="width:64px" aria-label="Quantidade de batches">
+            <button class="hbtn" id="progAdd" type="button">Programar</button>
+            <button class="hbtn" id="progClear" type="button">Limpar concluídos</button>
+          </div>
+        </div>
+        <div class="hmi-main">
+          <div class="hmi-banner" id="hbBox"><div><small>Composto</small><b id="hbComp">—</b></div><div class="r"><small>BATCH</small><b id="hbBatch">0/0</b></div></div>
+          <div class="hmi-mx"><table class="mtbl" id="mxTbl"></table></div>
+          <div class="hmi-foot">
+            <div><small>Carbono</small><b id="hfC">0,0 kg</b></div>
+            <div><small>Óleo</small><b id="hfO">0,0 kg</b></div>
+            <div><small>Tempo</small><b id="hfT">0:00</b></div>
+            <div><small>PI</small><b id="hfPI">0,0 kWh</b></div>
+            <div><small>Temp. guard</small><b id="hfG" style="font-size:15px">Máx — · Mín —</b></div>
+            <div class="big"><small>Temperatura</small><b id="hfTemp">0 °C</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="op">
+      <div class="panel syn">
+        <div class="ph"><span>Sinótico do misturador</span><span id="synInfo"></span></div>
+        <svg viewBox="0 0 560 640" role="img" aria-label="Sinótico do misturador interno com pistão, porta de carga, câmara, rotores e porta de descarga">
+          <defs>
+            <linearGradient id="gMetal" x1="0" x2="1"><stop offset="0" stop-color="#4d565e"/><stop offset=".5" stop-color="#717c86"/><stop offset="1" stop-color="#4d565e"/></linearGradient>
+            <pattern id="gBlack" width="6" height="6" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#3a3f44"/><circle cx="2" cy="2" r="1.2" fill="#0b0c0d"/><circle cx="5" cy="5" r="1" fill="#0b0c0d"/></pattern>
+          </defs>
+          <!-- cilindro pneumático -->
+          <rect x="245" y="14" width="70" height="92" rx="4" fill="url(#gMetal)" stroke="#2a3036"/>
+          <rect x="250" y="20" width="60" height="80" fill="#1d2226"/>
+          <rect id="ramPiston" x="252" y="22" width="56" height="10" fill="#9aa5ae"/>
+          <text x="325" y="34" class="tagl">CILINDRO</text>
+          <text x="325" y="50" class="tagv" id="tPress">0,0 bar</text>
+          <rect id="ramRod" x="275" y="100" width="10" height="30" fill="#aab4bc"/>
+          <!-- garganta -->
+          <rect x="208" y="118" width="144" height="190" fill="#1a1e22" stroke="var(--line2)"/>
+          <!-- tremonha / porta de carga -->
+          <path d="M70 150 L200 190 L200 262 L120 262 L70 210 Z" fill="#2b3136" stroke="var(--line2)"/>
+          <path id="hopFill" d="M90 200 L196 222 L196 258 L122 258 L90 228 Z" fill="var(--metal2)" opacity="0"/>
+          <text x="84" y="142" class="tagl">TREMONHA</text>
+          <circle id="jetLamp" cx="150" cy="118" r="5" fill="var(--off)"/><text x="160" y="122" class="tagl">JATO DE AR</text>
+          <text x="84" y="282" class="tagv" id="tHop" style="font-size:12px">vazia</text>
+          <g id="feedDoor"><rect x="198" y="190" width="10" height="72" fill="#8a949d"/></g>
+          <circle id="feedLamp" cx="203" cy="180" r="5" fill="var(--off)"/>
+          <text x="84" y="300" class="tagl">PORTA DE CARGA</text>
+          <text x="84" y="316" class="tagv" id="tFeed" style="font-size:13px">FECHADA</text>
+          <!-- peso do pistão -->
+          <g id="ram"><rect x="212" y="0" width="136" height="64" rx="2" fill="url(#gMetal)" stroke="#2a3036"/>
+            <rect x="222" y="10" width="116" height="6" fill="#3c444b"/><text x="280" y="44" text-anchor="middle" class="tagl" style="fill:#1b1f23;font-weight:700">PISTÃO</text></g>
+          <!-- corpo da câmara -->
+          <rect x="96" y="300" width="368" height="196" rx="10" fill="url(#gMetal)" stroke="#2a3036"/>
+          <circle cx="200" cy="398" r="84" fill="var(--cavity)"/>
+          <circle cx="360" cy="398" r="84" fill="var(--cavity)"/>
+          <rect x="200" y="330" width="160" height="136" fill="var(--cavity)"/>
+          <rect x="212" y="300" width="136" height="40" fill="var(--cavity)"/>
+          <g id="mat" opacity="0">
+            <circle cx="200" cy="398" r="80" fill="url(#gBlack)"/><circle cx="360" cy="398" r="80" fill="url(#gBlack)"/>
+            <rect x="200" y="334" width="160" height="128" fill="url(#gBlack)"/>
+            <rect id="matTint" x="116" y="314" width="328" height="168" fill="#f27a4a" opacity="0" style="mix-blend-mode:screen"/>
+          </g>
+          <g id="rotL" transform="translate(200 398)"><path d="M-70,-10 C-35,-34 -10,-12 0,0 C10,12 35,34 70,10 C40,28 12,14 0,0 C-12,-14 -40,-28 -70,-10Z" fill="#a8b2ba" stroke="#2a3036"/><circle r="15" fill="#7a858f" stroke="#2a3036"/></g>
+          <g id="rotR" transform="translate(360 398)"><path d="M-70,10 C-35,34 -10,12 0,0 C10,-12 35,-34 70,-10 C40,-28 12,-14 0,0 C-12,14 -40,28 -70,10Z" fill="#a8b2ba" stroke="#2a3036"/><circle r="15" fill="#7a858f" stroke="#2a3036"/></g>
+          <text x="108" y="322" class="tagl" style="fill:#1b1f23;font-weight:700">CÂMARA 270 L</text>
+          <!-- termopar -->
+          <rect x="455" y="390" width="20" height="6" fill="#c9a24a"/>
+          <rect x="474" y="372" width="76" height="44" rx="2" fill="var(--inset)" stroke="var(--line2)"/>
+          <text x="480" y="386" class="tagl">TEMP.</text>
+          <text x="480" y="407" class="tagv" id="tTemp">0 °C</text>
+          <!-- rotores -->
+          <rect x="4" y="372" width="86" height="44" rx="2" fill="var(--inset)" stroke="var(--line2)"/>
+          <text x="10" y="386" class="tagl">ROTOR</text>
+          <text x="10" y="407" class="tagv" id="tRpm">0 rpm</text>
+          <circle id="motLamp" cx="80" cy="382" r="5" fill="var(--off)"/>
+          <!-- porta de descarga -->
+          <g id="dropDoor"><path d="M236 486 L324 486 L314 520 L246 520 Z" fill="#8a949d" stroke="#2a3036"/></g>
+          <circle id="dropLamp" cx="344" cy="510" r="5" fill="var(--off)"/>
+          <text x="356" y="514" class="tagl">PORTA DE DESCARGA</text>
+          <text x="356" y="530" class="tagv" id="tDrop" style="font-size:13px">FECHADA</text>
+          <!-- moinho / batch-off -->
+          <g id="falling" opacity="0"><rect x="262" y="520" width="36" height="56" fill="url(#gBlack)"/></g>
+          <rect x="140" y="580" width="280" height="12" rx="6" fill="#3c444b"/>
+          <circle cx="230" cy="608" r="20" fill="#59636c" stroke="#2a3036"/><circle cx="330" cy="608" r="20" fill="#59636c" stroke="#2a3036"/>
+          <rect id="pile" x="200" y="580" width="160" height="0" fill="url(#gBlack)"/>
+          <text x="430" y="596" class="tagl">MOINHO</text>
+          <text x="430" y="612" class="tagv" id="tPile" style="font-size:12px">0 kg</text>
+          <!-- posição do pistão -->
+          <rect x="370" y="128" width="10" height="170" fill="var(--inset)" stroke="var(--line2)"/>
+          <rect id="posBar" x="371" y="129" width="8" height="0" fill="var(--pen-pos)"/>
+          <text x="388" y="140" class="tagl">POSIÇÃO PISTÃO</text>
+          <text x="388" y="160" class="tagv" id="tPos">0 %</text>
+          <text x="388" y="180" class="tagl" id="tRamCmd">COMANDO: SUBIR</text>
+          <circle id="ramDownLamp" cx="394" cy="200" r="5" fill="var(--off)"/><text x="404" y="204" class="tagl">EM BAIXO</text>
+          <circle id="ramUpLamp" cx="394" cy="220" r="5" fill="var(--off)"/><text x="404" y="224" class="tagl">EM CIMA</text>
+        </svg>
+      </div>
+
+      <div class="side">
+        <div class="panel">
+          <div class="ph"><span>Variáveis de processo</span><span id="pvMass"></span></div>
+          <div class="pv">
+            <div class="pvc" id="cT"><div class="l">Temperatura</div><div class="v"><span id="vT">0</span><small>°C</small></div><div class="sub" id="vTsp">SP descarga —</div><div class="bar"><i id="bT"></i><span class="mk" id="mkT"></span></div></div>
+            <div class="pvc" id="cP"><div class="l">Potência</div><div class="v"><span id="vP">0</span><small>kW</small></div><div class="sub" id="vPpk">pico 0 kW</div><div class="bar"><i id="bP"></i></div></div>
+            <div class="pvc"><div class="l">Energia</div><div class="v"><span id="vE">0,0</span><small>kWh</small></div><div class="sub" id="vEkg">0,000 kWh/kg</div><div class="bar"><i id="bE"></i><span class="mk" id="mkE" hidden></span></div></div>
+            <div class="pvc"><div class="l">Rotor</div><div class="v"><span id="vR">0</span><small>rpm</small></div><div class="sub" id="vRsp">SP 0 rpm</div><div class="bar"><i id="bR"></i></div></div>
+            <div class="pvc"><div class="l">Pressão pistão</div><div class="v"><span id="vPr">0,0</span><small>bar</small></div><div class="sub" id="vPrsp">SP 0,0 bar</div><div class="bar"><i id="bPr"></i></div></div>
+            <div class="pvc"><div class="l">Posição pistão</div><div class="v"><span id="vPos">0</span><small>%</small></div><div class="sub" id="vPosmm">0 mm</div><div class="bar"><i id="bPos"></i></div></div>
+            <div class="pvc"><div class="l">Tempo batelada</div><div class="v" id="vBt">00:00</div><div class="sub" id="vSt">etapa 00:00</div></div>
+            <div class="pvc" id="cFF"><div class="l">Fator enchimento</div><div class="v" id="vFF">0,00</div><div class="sub">janela 0,65 a 0,80</div></div>
+            <div class="pvc"><div class="l">Dispersão (índice)</div><div class="v"><span id="vD">0</span><small>%</small></div><div class="sub" id="vInc">negro livre 0 kg</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><span id="ctlTitle">Comando automático</span>
+            <span class="row"><button class="btn" id="bModeAuto" type="button">Automático</button><button class="btn" id="bModeMan" type="button">Manual</button></span></div>
+          <div class="pb ctl" id="ctlAuto">
+            <div class="row">
+              <button class="btn pri" id="bStart" type="button">Iniciar ciclo</button>
+              <button class="btn" id="bHold" type="button">Pausar sequência</button>
+              <button class="btn danger" id="bAbort" type="button">Descarregar agora</button>
+              <label class="chk"><input type="checkbox" id="cont" checked> Seguir a programação (ciclo contínuo)</label>
+            </div>
+            <div class="msg" id="autoMsg"></div>
+            <div class="note" id="seqNow" style="font-size:13px"></div>
+
+          </div>
+          <div class="pb ctl" id="ctlMan" hidden>
+            <div class="grid2">
+              <div class="grp"><div class="gl">Rotores</div>
+                <div class="row"><button class="btn" id="mRotOn" type="button">Ligar</button><button class="btn" id="mRotOff" type="button">Desligar</button><span class="ind" id="iRot"><i></i>Girando</span></div>
+                <div class="sp"><input type="range" id="mRpm" min="0" max="60" step="1" value="40" aria-label="Rotação setpoint"><output id="oRpm">40 rpm</output></div>
+              </div>
+              <div class="grp"><div class="gl">Pistão</div>
+                <div class="row"><button class="btn" id="mRamUp" type="button">Subir</button><button class="btn" id="mRamDn" type="button">Descer</button><span class="ind" id="iRam"><i></i>Em baixo</span></div>
+                <div class="sp"><input type="range" id="mPr" min="0" max="8" step="0.5" value="6" aria-label="Pressão setpoint"><output id="oPr">6,0 bar</output></div>
+              </div>
+              <div class="grp"><div class="gl">Porta de carga</div>
+                <div class="row"><button class="btn" id="mFeedOp" type="button">Abrir</button><button class="btn" id="mFeedCl" type="button">Fechar</button><span class="ind" id="iFeed"><i></i>Aberta</span></div>
+                <div class="row"><select class="in" id="mIng" aria-label="Ingrediente"></select><input class="in" type="number" id="mKg" value="50" min="0.5" max="250" step="0.5" style="width:80px" aria-label="Quantidade em kg"><button class="btn" id="mLoad" type="button">Pesar e enviar</button></div>
+              </div>
+              <div class="grp"><div class="gl">Porta de descarga</div>
+                <div class="row"><button class="btn" id="mDropOp" type="button">Abrir</button><button class="btn" id="mDropCl" type="button">Fechar</button><span class="ind" id="iDrop"><i></i>Aberta</span></div>
+                <div class="note" style="font-size:12px">Abra com os rotores girando para esvaziar a câmara.</div>
+              </div>
+            </div>
+            <div class="msg" id="manMsg"></div>
+          </div>
+        </div>
+
+        <div class="panel mini">
+          <div class="ph"><span>Tendência da batelada</span><span class="legend"><span><span class="sw" style="background:var(--pen-t)"></span> Temp.</span><span><span class="sw" style="background:var(--pen-p)"></span> Potência</span></span></div>
+          <canvas id="miniCv" height="150"></canvas>
+        </div>
+        <div class="panel">
+          <div class="ph"><span>Eventos da batelada</span></div>
+          <div class="pb ev" id="evList"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cp-wrap"><div class="cpanel" id="cpanel">
+      <div class="cp-head"><span>Painel de comando do misturador</span><span>Botões iluminados: aceso = ativo, piscando = aguardando o operador</span></div>
+      <div class="cp-flex"><div class="cp-grid" id="cpGrid"></div><div class="cp-side" id="cpSide"></div></div>
+      <div class="cp-msg" id="cpMsg"></div>
+    </div></div>
+  </section>
+
+  <!-- RECEITAS -->
+  <section class="view" id="v-rec" hidden>
+    <div class="rec">
+      <div class="panel">
+        <div class="ph"><span>Receitas</span></div>
+        <div class="rlist" id="rList"></div>
+        <div class="pb row"><button class="btn" id="rNew" type="button">Nova</button><button class="btn" id="rDup" type="button">Duplicar</button><button class="btn danger" id="rDel" type="button">Excluir</button></div>
+        <div class="pb row" style="padding-top:0"><button class="btn" id="rReset" type="button">Restaurar exemplos</button></div>
+        <div class="pb note" style="font-size:12px">Condição A: o passo termina no primeiro critério atingido (tempo, temperatura, PI ou rotação). Condição B: termina quando todos os critérios preenchidos forem atingidos.</div>
+      </div>
+      <div class="side">
+        <div class="panel">
+          <div class="ph"><span>Ficha Mixing Process</span><span class="row"><button class="btn" id="rToPlan" type="button">Programar no misturador</button><button class="btn pri" id="rPredict" type="button">Prever curvas</button></span></div>
+          <div class="sheet-wrap"><div class="sheet" id="sheet"></div></div>
+          <div class="pb calc" id="rCalc"></div>
+        </div>
+        <div class="panel">
+          <div class="ph"><span>Exportar / importar</span><span class="row"><button class="btn" id="rExport" type="button">Exportar receita</button><button class="btn" id="rCopy" type="button">Copiar</button><button class="btn" id="rImport" type="button">Importar do texto</button></span></div>
+          <div class="pb"><textarea class="in" id="rJson" aria-label="Receita em JSON" placeholder="Cole aqui uma receita em JSON e clique em Importar do texto."></textarea><div class="msg" id="rMsg"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GRÁFICOS (réplica do supervisório) -->
+  <section class="view" id="v-tr" hidden>
+    <div class="hmi trh">
+      <div class="tr-head"><span class="tl">Nome do composto</span><span class="tc" id="trComp">—</span><span class="tb" id="trBatch">[( — )]</span></div>
+      <div class="tr-body">
+        <fieldset class="tr-fs"><legend>Lenda</legend><div class="tr-leg" id="trLeg"></div></fieldset>
+        <fieldset class="tr-fs"><legend>Informação do Chart</legend><div class="scroll"><table class="tr-info" id="trInfo"></table></div></fieldset>
+        <div class="tr-chartrow">
+          <div class="tr-chart"><canvas id="trCv"></canvas></div>
+          <div class="tr-side">
+            <label class="tr-win">Janela (s)<input id="trWin" class="hin hnum" type="number" min="60" max="7200" step="30" value="450"></label>
+            <label class="chk" style="color:#223"><input type="checkbox" id="trFollow" checked> Tempo real</label>
+            <div class="tr-sel"><label for="trSelB">Selecionar batch</label><select id="trSelB" class="hin"></select></div>
+          </div>
+        </div>
+        <input type="range" id="trScroll" min="0" max="1000" value="1000" aria-label="Rolar no tempo" class="tr-scroll">
+      </div>
+      <div class="fkeys">
+        <button type="button" class="fk" disabled><i>F1</i><span>Imprimir</span></button>
+        <button type="button" class="fk" disabled><i>F2</i><span></span></button>
+        <button type="button" class="fk" disabled><i>F3</i><span></span></button>
+        <button type="button" class="fk" disabled><i>F4</i><span></span></button>
+        <button type="button" class="fk" id="fkPrev"><i>F5</i><span>◀ Anterior</span></button>
+        <button type="button" class="fk" id="fkNext"><i>F6</i><span>Próximo ▶</span></button>
+        <button type="button" class="fk" id="fkBPrev"><i>F7</i><span>Ir para Batch anterior</span></button>
+        <button type="button" class="fk" id="fkBNext"><i>F8</i><span>Ir para o próximo Batch</span></button>
+        <button type="button" class="fk" disabled><i>F9</i><span></span></button>
+        <button type="button" class="fk" id="fkMove"><i>F10</i><span>Movimentação do batch</span></button>
+        <button type="button" class="fk" id="fkSel"><i>F11</i><span>Selecionar batch</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- GRÁFICOS -->
+  <section class="view" id="v-gr" hidden>
+    <div class="panel">
+      <div class="ph"><span>Análise de batelada · <span id="grTitle">batelada atual</span></span><span id="grCursor" class="prog"></span></div>
+      <div class="pb trend-tools">
+        <label class="chk"><input type="checkbox" data-pane="T" checked><span class="sw" style="background:var(--pen-t)"></span>Temperatura</label>
+        <label class="chk"><input type="checkbox" data-pane="P" checked><span class="sw" style="background:var(--pen-p)"></span>Potência</label>
+        <label class="chk"><input type="checkbox" data-pane="E" checked><span class="sw" style="background:var(--pen-e)"></span>Energia</label>
+        <label class="chk"><input type="checkbox" data-pane="rpm" checked><span class="sw" style="background:var(--pen-rpm)"></span>Rotor</label>
+        <label class="chk"><input type="checkbox" data-pane="ram" checked><span class="sw" style="background:var(--pen-pr)"></span>Pistão (pressão e posição)</label>
+        <span class="spacer"></span>
+        <label class="ind" for="grShow">Mostrar</label>
+        <select class="in" id="grShow"><option value="cur">Batelada atual</option></select>
+        <label class="ind" for="grCmp">Comparar com</label>
+        <select class="in" id="grCmp"><option value="none">Nada</option><option value="prev">Batelada anterior</option><option value="pred">Previsão da receita</option></select>
+      </div>
+      <div class="pb" style="padding-top:0"><div class="legend"><span>Linhas verticais: troca de etapa</span><span><span class="dash"></span> comparação</span><span>Faixa sombreada: janela de descarga da receita</span></div></div>
+      <div class="chart pb" style="padding-top:0"><canvas id="trendCv"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ALARMES -->
+  <section class="view" id="v-al" hidden>
+    <div class="two">
+      <div class="panel">
+        <div class="ph"><span>Lista de alarmes</span><button class="btn" id="ackAll" type="button">Reconhecer todos</button></div>
+        <div class="scroll"><table class="tbl" id="alTbl"></table></div>
+      </div>
+      <div class="panel">
+        <div class="ph"><span>Painel do instrutor</span></div>
+        <div class="pb ctl">
+          <p class="note">Insira falhas durante a batelada para treinar a reação do operador.</p>
+          <label class="chk"><input type="checkbox" id="fAgua"> Falha na água de refrigeração (vazão baixa)</label>
+          <label class="chk"><input type="checkbox" id="fTerm"> Termopar descalibrado (lê 18 °C abaixo do real)</label>
+          <label class="chk"><input type="checkbox" id="fAr"> Pressão de ar baixa no cilindro (máx. 3 bar)</label>
+          <div class="grp"><div class="gl">Temperatura da água de refrigeração</div>
+            <div class="sp"><input type="range" id="fTw" min="20" max="70" step="1" value="40" aria-label="Temperatura da água"><output id="oTw">40 °C</output></div>
+          </div>
+          <p class="note">Com o termopar descalibrado a descarga por temperatura acontece tarde e a massa sai mais quente do que o painel mostra. Observe a energia e o tempo para perceber a falha.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BATELADAS -->
+  <section class="view" id="v-hi" hidden>
+    <div class="panel">
+      <div class="ph"><span>Bateladas produzidas</span><span class="note" style="font-size:12px">Clique numa linha para ver as curvas</span></div>
+      <div class="scroll"><table class="tbl" id="hiTbl"></table></div>
+    </div>
+  </section>
+</main>
+
+<div class="banner" id="banner"><div class="wrap banner-in"><span class="sev info" id="bnSev">OK</span><span class="bt" id="bnText">Sem alarmes ativos</span><button class="btn" id="bnAck" type="button" hidden>Reconhecer</button></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// ==MODEL START==
+// Modelo simplificado de um misturador interno tipo Banbury (câmara 270 L).
+// Não é um modelo reológico rigoroso: foi calibrado para reproduzir as tendências
+// típicas (pico de potência na incorporação do negro, queda de viscosidade com a
+// temperatura, flutuação do pistão, atraso do termopar) para fins de treinamento.
+const MACH = { nome: 'No. 1 MIXER', vol: 390, motorMax: 2000, rpmMax: 60, pressMax: 8, stroke: 700 };
+const ING = {
+  polimero:  { n: 'Polímero (NR/SBR/BR)', d: 0.93, s: 'POLÍMERO' },
+  negro:     { n: 'Negro de fumo',        d: 1.80, s: 'NEGRO' },
+  oleo:      { n: 'Óleo de processo',     d: 0.95, s: 'ÓLEO' },
+  quimicos:  { n: 'Químicos (ZnO, estearina, AO)', d: 2.50, s: 'QUÍMICOS' },
+  curativos: { n: 'Curativos (enxofre, acelerador)', d: 1.90, s: 'CURATIVOS' },
+  mb:        { n: 'Masterbatch (repasse)', d: 1.13, s: 'MASTERBATCH' },
+};
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const approach = (v, t, r) => v < t ? Math.min(t, v + r) : Math.max(t, v - r);
+
+function newState() {
+  return {
+    t: 0, bt: 0, batchActive: false, batchNo: 0,
+    T: 38, Tm: 38, Tw: 40, Tc: 60,
+    rpm: 0, rpmSP: 30, rotors: false,
+    press: 0, pressSP: 6, pos: 0, ramCmd: 'up',
+    feed: 0, feedCmd: false, drop: 0, dropCmd: false,
+    m: { polF: 0, polM: 0, bF: 0, bI: 0, oF: 0, oI: 0, ch: 0, cuF: 0, cuI: 0, mbF: 0, mbI: 0 },
+    hopper: [], E: 0, P: 0, Ppk: 0, D: 0, scorch: 0, dropped: 0, pile: 0,
+    Tdrop: null, overload: false, vCharged: 0, kgCharged: 0, overfill: 0,
+    seq: null, events: [], trend: [], lastRec: -1, stepIdx: -1, log: [], lastLog: -1, rev: 0, stepE: 0, cScale: 0, oScale: 0, jetReq: false, batches: [],
+    faults: { agua: false, termopar: false, ar: false }, emerg: false,
+    finished: null, onEvent: null, cuChargedAt: null,
+    motor: true, aux: true, tcu: true, jet: false, jetAuto: true,
+    feedManual: { borracha: false, carbono: false }, opWeighOk: false, opRubberDone: false, carbonOn: false,
+  };
+}
+function massOf(m) { return m.polF + m.polM + m.bF + m.bI + m.oF + m.oI + m.ch + m.cuF + m.cuI + m.mbF + m.mbI; }
+function volOf(m) {
+  return (m.polF + m.polM) / ING.polimero.d + (m.bF + m.bI) / ING.negro.d + (m.oF + m.oI) / ING.oleo.d +
+    m.ch / ING.quimicos.d + (m.cuF + m.cuI) / ING.curativos.d + (m.mbF + m.mbI) / ING.mb.d;
+}
+function emit(s, type, msg) { s.events.push({ t: s.bt, type, msg }); if (s.onEvent) s.onEvent(type, msg, s); }
+
+function startBatch(s) {
+  if (s.batchActive) return;
+  s.batchActive = true; s.batchNo++; s.bt = 0; s.E = 0; s.Ppk = 0; s.D = 0; s.scorch = 0;
+  s.Tdrop = null; s.vCharged = 0; s.kgCharged = 0; s.trend = []; s.events = []; s.lastRec = -1;
+  s.dropped = 0; s.pile = 0; s.cuChargedAt = null; s.rev = 0; s.maxT = 0; s.minFF = null;
+  if (s.onEvent) s.onEvent('batchstart', 'Início da batelada ' + s.batchNo, s);
+}
+
+function addMaterial(s, ing, kg) {
+  const m = s.m, M0 = massOf(m);
+  const Tin = 28;
+  s.T = M0 > 0.5 ? (s.T * M0 * 1.9 + Tin * kg * 1.9) / ((M0 + kg) * 1.9) : (s.T * 0.3 + Tin * 0.7);
+  if (ing === 'polimero') m.polF += kg;
+  else if (ing === 'negro') m.bF += kg;
+  else if (ing === 'oleo') m.oF += kg;
+  else if (ing === 'quimicos') m.ch += kg;
+  else if (ing === 'curativos') { m.cuF += kg; if (s.cuChargedAt === null) s.cuChargedAt = s.bt; }
+  else if (ing === 'mb') m.mbF += kg;
+  s.vCharged += kg / ING[ing].d; s.kgCharged += kg;
+}
+
+function physics(s, dt) {
+  const m = s.m, f = s.faults;
+  const M = massOf(m);
+  // Acionamento dos rotores (rampa de aceleração do motor)
+  const rpmT = s.rotors && s.motor && s.aux && !s.emerg ? clamp(s.rpmSP, 0, MACH.rpmMax) : 0;
+  s.rpm = approach(s.rpm, rpmT, (rpmT > s.rpm ? 12 : 30) * dt);
+  // Pressão de ar no cilindro do pistão
+  const pmax = f.ar ? 3 : MACH.pressMax;
+  const pT = s.ramCmd === 'down' && !s.emerg ? Math.min(s.pressSP, pmax) : 0;
+  s.press += (pT - s.press) * Math.min(1, dt * 1.5);
+  // Portas (carga e descarga)
+  s.feed = approach(s.feed, s.feedCmd && !s.emerg ? 1 : 0, dt / 1.5);
+  s.drop = approach(s.drop, s.dropCmd && !s.emerg ? 1 : 0, dt / 2);
+  // Pistão: material ainda não incorporado faz o pistão "flutuar"
+  const ff = volOf(m) / MACH.vol;
+  s.overfill = Math.max(0, ff - 0.8) * MACH.stroke * 3.5;
+  const loft = Math.min(MACH.stroke * 0.85, 1.9 * m.polF + 4.8 * m.bF + 2.0 * m.oF + 0.8 * m.mbF + 1.5 * m.cuF + s.overfill);
+  const floor = MACH.stroke - loft;
+  if (s.ramCmd === 'down' && s.feed < 0.02 && !s.emerg) {
+    const v = 230 * Math.sqrt(Math.max(s.press, 0.2) / 6);
+    s.pos = Math.min(s.pos + v * dt, Math.max(floor, s.pos));
+  } else if (s.ramCmd === 'up' && !s.emerg) {
+    s.pos = Math.max(0, s.pos - 350 * dt);
+  }
+  if (s.pos > floor) s.pos = Math.max(floor, s.pos - 220 * dt);
+  // Tremonha → câmara (só com porta de carga aberta e pistão em cima)
+  if (s.hopper.length && s.feed > 0.85 && s.pos < MACH.stroke * 0.1) {
+    const h = s.hopper[0];
+    const q = Math.min(h.kg, 30 * dt);
+    if (!s.batchActive) startBatch(s);
+    addMaterial(s, h.ing, q); h.kg -= q;
+    if (h.kg <= 1e-6) { s.hopper.shift(); emit(s, 'load', (h.nome || ING[h.ing].s) + ' ' + h.total.toFixed(1) + ' kg na câmara'); }
+  }
+  // Fator de assentamento do pistão (eficiência de mistura)
+  const seat = s.ramCmd === 'down' ? Math.pow(clamp(s.pos / MACH.stroke, 0, 1), 2) : 0.12;
+  const ps = seat * (0.35 + 0.65 * Math.min(s.press, 8) / 6);
+  const rf = s.rpm / 50;
+  let incRate = 0;
+  if (M > 0.5 && s.rpm > 1) {
+    const g = 0.5 + 0.5 * ps;
+    const dPol = m.polF * 0.06 * rf * g * dt; m.polF -= dPol; m.polM += dPol;
+    const matrix = m.polM + m.mbI, matrixAll = m.polM + m.polF + m.mbI + m.mbF + 1e-6;
+    const slow = 1 / (1 + 10 * m.oF / M) * (s.jet && s.ramCmd === 'up' ? 1.3 : 1);
+    const dB = m.bF * 0.085 * rf * (0.15 + 0.85 * ps) * (matrix / matrixAll) * slow * dt;
+    m.bF -= dB; m.bI += dB; incRate = dB / dt;
+    const dO = m.oF * 0.03 * rf * g * dt; m.oF -= dO; m.oI += dO;
+    const dC = m.cuF * 0.16 * rf * g * dt; m.cuF -= dC; m.cuI += dC;
+    const dM = m.mbF * 0.14 * rf * g * dt; m.mbF -= dM; m.mbI += dM;
+  }
+  // Viscosidade efetiva (adimensional)
+  let v = 0;
+  const pol = m.polF + m.polM, mbT = m.mbF + m.mbI, matrixMass = pol + mbT;
+  if (M > 0.5) {
+    if (matrixMass > 0.5) {
+      const phi = (m.bI / 1.8) / (pol / 0.93 + m.bI / 1.8 + m.oI / 0.95 + 1e-6);
+      const vp = (1 + 2.5 * phi + 14 * phi * phi) * (1 - Math.min(0.45, 1.5 * m.oI / (pol + 1e-6))) * (1 + 1.3 * m.polF / (pol + 1e-6));
+      const vmb = 1.6 * (1 + 0.8 * m.mbF / (mbT + 1e-6));
+      v = (vp * pol + vmb * mbT) / matrixMass;
+    } else v = 0.25;
+    v *= Math.exp(-0.011 * (s.T - 70));
+    v *= 1 / (1 + 14 * m.oF / M);
+  }
+  // Potência no eixo
+  let P = 0;
+  if (s.rpm > 0.5 && !s.emerg) {
+    P = 30 * rf + 900 * Math.pow(rf, 1.1) * (M / 220) * v * (0.4 + 0.6 * ps) + 260 * incRate;
+  }
+  s.overload = false;
+  if (P > MACH.motorMax) { s.overload = true; s.rpm *= Math.pow(MACH.motorMax / P, dt * 2); P = MACH.motorMax; }
+  s.P = P;
+  // Balanço térmico: dissipação viscosa − remoção pela água de refrigeração
+  // Massa ↔ parede/rotores (Tc) ↔ água do TCU
+  const hw = (f.agua || !s.tcu ? 0.8 : 4.0);
+  let qMass = 0;
+  if (M > 0.5) {
+    const h = 2.5 * (0.4 + 0.6 * Math.min(1, M / 320)) * (0.7 + 0.3 * rf);
+    qMass = h * (s.T - s.Tc);
+    s.T += (0.94 * P - qMass) / (M * 1.9) * dt;
+  } else {
+    s.T += (s.Tc - s.T) * dt / 20;
+  }
+  s.Tc += (qMass - hw * (s.Tc - s.Tw)) / 700 * dt;
+  // O termopar fica na parede da câmara: com o pistão em cima lê mais a parede do que a massa
+  const contact = M > 1 ? (s.ramCmd === 'down' ? 0.55 + 0.45 * clamp(s.pos / MACH.stroke, 0, 1) : 0.45) : 0;
+  const Tread = s.T * contact + s.Tc * (1 - contact) + (f.termopar ? -18 : 0);
+  s.Tm += (Tread - s.Tm) * Math.min(1, dt / 5);
+  // Integrais de batelada
+  if (s.batchActive) {
+    s.bt += dt; s.E += P * dt / 3600; s.stepE = (s.stepE || 0) + P * dt / 3600; s.rev += s.rpm / 60 * dt; s.Ppk = Math.max(s.Ppk, P); s.maxT = Math.max(s.maxT, s.T);
+    const bT = m.bF + m.bI;
+    if (bT > 0.5 && M > 1) s.D += (P / M) / 105 * (100 - s.D) * (m.bI / bT) * dt;
+    if ((m.cuF + m.cuI) > 0.1 && s.T > 112) s.scorch += (s.T - 112) * dt;
+  }
+  // Descarga
+  if (s.drop > 0.6 && M > 0) {
+    const q = Math.min(M, 45 * s.drop * (s.rpm > 2 ? 1 : 0.35) * dt);
+    const k = 1 - q / M;
+    for (const key in m) m[key] *= k;
+    s.dropped += q; s.pile += q;
+    if (massOf(m) < 0.3) { for (const key in m) m[key] = 0; finishBatch(s); }
+  }
+  s.t += dt;
+  // Registro contínuo (tela de gráficos estilo supervisório)
+  const kk = Math.floor(s.t / 0.5);
+  if (kk !== s.lastLog) {
+    s.lastLog = kk;
+    s.log.push({ t: s.t, T: s.Tm, P: s.P, pos: s.pos / MACH.stroke * 100, rpm: s.rpm, cw: s.cScale || 0, o1: s.oScale || 0, o2: 0, b: s.batchActive ? s.batchNo : 0, E: s.E });
+    if (s.log.length > 40000) s.log.splice(0, 5000);
+  }
+  // Registro de tendência a cada 0,5 s de batelada
+  if (s.batchActive) {
+    const k = Math.floor(s.bt / 0.5);
+    if (k !== s.lastRec) {
+      s.lastRec = k;
+      s.trend.push({ t: s.bt, T: s.Tm, P: s.P, E: s.E, rpm: s.rpm, pr: s.press, pos: s.pos / MACH.stroke * 100, step: s.stepIdx, cw: s.cScale || 0, o1: s.oScale || 0 });
+    }
+  }
+}
+
+function finishBatch(s) {
+  if (!s.batchActive) return;
+  const r = {
+    no: s.batchNo, tempo: s.bt, Tdrop: s.Tdrop, E: s.E, kg: s.kgCharged, Ekg: s.kgCharged ? s.E / s.kgCharged : 0,
+    Ppk: s.Ppk, D: s.D, scorch: s.scorch, ff: s.vCharged / MACH.vol, hasCur: s.cuChargedAt !== null,
+    bFreeFrac: s._bFreeAtDrop || 0, cuFreeFrac: s._cuFreeAtDrop || 0,
+    trend: s.trend, events: s.events.slice(),
+  };
+  s.batchActive = false; s.finished = r;
+  if (s.onEvent) s.onEvent('batchend', 'Fim da batelada ' + r.no, s);
+}
+function markDrop(s) {
+  if (s.Tdrop !== null) return;
+  s.Tdrop = s.Tm; s._TrealDrop = s.T;
+  const m = s.m, bT = m.bF + m.bI, cT = m.cuF + m.cuI;
+  s._bFreeAtDrop = bT > 0 ? m.bF / bT : 0;
+  s._cuFreeAtDrop = cT > 0 ? m.cuF / cT : 0;
+  emit(s, 'drop', 'Descarga a ' + s.Tm.toFixed(1) + ' °C, ' + s.E.toFixed(1) + ' kWh');
+}
+
+// ---------- Sequenciador do modo automático (receita em matriz de passos) ----------
+// Passo -1 = carga dos ingredientes pela porta de alimentação; passos 0..n-1 = colunas da receita;
+// passo n = descarga (porta de descarga aberta durante D/D Time na rotação D/D Rotor).
+const FW = { up: 'F.W UP', middle: 'F.W MIDDLE', down: 'F.W DOWN', press: 'F.W PRESS' };
+function activeSteps(R) {
+  let n = 0;
+  R.steps.forEach((st, i) => { if (st.fw || +st.rpm > 0 || +st.time > 0 || +st.temp > 0) n = i + 1; });
+  return R.steps.slice(0, n);
+}
+function stepName(R, i) {
+  const st = R._steps[i];
+  if (i < 0) return 'Carga de ingredientes';
+  if (!st) return 'Descarga';
+  const f = [FW[st.fw] || 'F.W —'];
+  if (st.carbon) f.push('carbono'); if (st.oil) f.push('óleo'); if (st.airBlow) f.push('jato de ar');
+  return 'Passo ' + (i + 1) + ' · ' + f.join(' + ');
+}
+function nextCarbonTarget(s, R, list) {
+  // quanto a balança deve ter pesado: próximo item ainda não carregado nesta batelada
+  const q = s.seq;
+  const it = list.find(x => !(q && q.charged && q.charged[x._k]));
+  return it ? +it.kg : (list[0] ? +list[0].kg : 0);
+}
+function seqStart(s, R) {
+  R._steps = activeSteps(R);
+  (R.carbon || []).forEach((x, i) => x._k = 'c' + i);
+  (R.oil || []).forEach((x, i) => x._k = 'o' + i);
+  const keepScale = s.seq && s.seq.R && s.seq.R.id === R.id;
+  s.seq = { i: -1, phase: 0, st: 0, running: true, hold: false, R, wait: 0, charged: {}, continuo: s.seq ? s.seq.continuo : false };
+  s.stepIdx = -1; s.rotors = true; s.stepE = 0;
+  if (!keepScale || s.cScale === undefined) { s.cScale = nextCarbonTarget(s, R, R.carbon || []); s.oScale = nextCarbonTarget(s, R, R.oil || []); }
+  s.Tw = ((+R.tcu.casing || 40) + (+R.tcu.rotor || 40) + (+R.tcu.door || 40)) / 3;
+  if (!s.batchActive) startBatch(s);
+  emit(s, 'step', stepName(R, -1));
+}
+function seqGoto(s, i, why) {
+  const q = s.seq, R = q.R;
+  q.i = i; q.phase = 0; q.st = 0; s.stepIdx = i; s.stepE = 0; q.waitOp = null;
+  emit(s, 'step', stepName(R, i) + (why ? ' (' + why + ')' : ''));
+}
+function condText(st) {
+  const c = [];
+  if (+st.time > 0) c.push(st.time + ' s'); if (+st.temp > 0) c.push(st.temp + ' °C');
+  if (+st.pi > 0) c.push(st.pi + ' kWh'); if (+st.rot > 0) c.push(st.rot + ' rot');
+  return c.length ? c.join(st.cond === 'B' ? ' e ' : ' ou ') : 'imediato';
+}
+function condProgress(s, st, q) {
+  if (!st) return null;
+  if (+st.temp > 0 && !(+st.time > 0)) return { cur: s.Tm, sp: +st.temp, u: '°C' };
+  if (+st.time > 0) return { cur: q.st, sp: +st.time, u: 's' };
+  if (+st.pi > 0) return { cur: s.E, sp: +st.pi, u: 'kWh' };
+  return null;
+}
+function charge(s, q, list, step, dt, kind) {
+  // descarrega na câmara os itens de carbono/óleo marcados para este passo
+  const items = list.filter(x => +x.step === step && !q.charged[x._k]);
+  if (!items.length) return true;
+  const it = items[0];
+  if (kind === 'c') {
+    if (s.feedManual.carbono && !s.carbonOn) { q.waitOp = 'carbono'; return false; }
+    if (s.pos > MACH.stroke * 0.3) return false;          // carbono entra pela garganta com o pistão em cima
+    if (s.cScale < +it.kg - 0.05 && !it._go) return false; // balança ainda pesando
+    it._go = true; q.waitOp = null;
+    const d = Math.min(s.cScale, 6 * dt);
+    s.cScale -= d; addMaterial(s, 'negro', d);
+    if (s.cScale <= 1e-6) { s.cScale = 0; q.charged[it._k] = true; it._go = false; emit(s, 'load', 'Carbono ' + it.kind + ' ' + (+it.kg).toFixed(1) + ' kg carregado'); }
+  } else {
+    if (s.oScale < +it.kg - 0.05 && !it._go) return false;
+    it._go = true;
+    const d = Math.min(s.oScale, 3 * dt);
+    s.oScale -= d; addMaterial(s, 'oleo', d);
+    if (s.oScale <= 1e-6) { s.oScale = 0; q.charged[it._k] = true; it._go = false; emit(s, 'load', 'Óleo ' + it.kind + ' ' + (+it.kg).toFixed(1) + ' kg injetado'); }
+  }
+  return false;
+}
+function sequencer(s, dt) {
+  const q = s.seq;
+  if (!q || s.emerg) return;
+  const R = q.R, steps = R._steps, n = steps.length;
+  // balanças de carbono e óleo pesam a próxima carga enquanto não estão descarregando
+  const cT = nextCarbonTarget(s, R, R.carbon || []), oT = nextCarbonTarget(s, R, R.oil || []);
+  const cBusy = (R.carbon || []).some(x => x._go), oBusy = (R.oil || []).some(x => x._go);
+  if (!cBusy && s.cScale < cT) s.cScale = Math.min(cT, s.cScale + 0.4 * dt);
+  if (!oBusy && s.oScale < oT) s.oScale = Math.min(oT, s.oScale + 0.5 * dt);
+  if (!q.running || q.hold) return;
+  if (q.wait > 0) { q.wait -= dt; if (q.wait <= 0) seqStart(s, R); return; }
+  // Guarda de temperatura (Temperature Guard Max): descarga de segurança
+  if (q.i < n && s.batchActive && s.Tm >= +R.guardMax) { emit(s, 'safety', 'Descarga de segurança: temperatura máxima ' + R.guardMax + ' °C'); seqGoto(s, n, 'segurança'); return; }
+  s.rotors = true;
+  if (q.i === -1) {
+    s.rpmSP = steps[0] ? +steps[0].rpm : 30; s.ramCmd = 'up'; s.dropCmd = false; s.jetReq = false;
+    if (q.phase === 0 && s.pos < 3) { s.feedCmd = true; q.phase = 1; }
+    if (q.phase === 1 && s.feed > 0.95) {
+      if (s.feedManual.borracha && !s.opRubberDone) { q.waitOp = 'borracha'; }
+      else {
+        s.opRubberDone = false; s.opWeighOk = false; q.waitOp = null;
+        (R.ingredients || []).forEach(x => { if (+x.kg > 0) s.hopper.push({ ing: x.tipo, kg: +x.kg, total: +x.kg, nome: x.name }); });
+        q.phase = 2;
+      }
+    }
+    if (q.phase === 2 && !s.hopper.length) { s.feedCmd = false; q.phase = 3; }
+    if (q.phase === 3 && s.feed < 0.02) seqGoto(s, 0);
+    return;
+  }
+  if (q.i < n) {
+    const st = steps[q.i];
+    s.rpmSP = +st.rpm; s.dropCmd = false; s.jetReq = !!st.airBlow;
+    if (st.fw === 'up' || !st.fw) s.ramCmd = 'up';
+    else if (st.fw === 'middle') { s.pressSP = 3; s.ramCmd = s.pos < MACH.stroke * 0.45 ? 'down' : 'stop'; }
+    else { s.pressSP = st.fw === 'press' ? 7 : 5; s.ramCmd = 'down'; }
+    s.feedCmd = !!st.hopper && s.ramCmd === 'up' && s.pos < 3;
+    if (st.fw && st.fw !== 'up' && s.feed > 0.02) s.ramCmd = 'up';
+    let done = true;
+    if (st.carbon) done = charge(s, q, R.carbon || [], q.i + 1, dt, 'c') && done;
+    if (st.oil) done = charge(s, q, R.oil || [], q.i + 1, dt, 'o') && done;
+    if (q.waitOp) return;               // passo congelado aguardando o operador
+    q.st += dt;
+    const crit = [];
+    if (+st.time > 0) crit.push(q.st >= +st.time);
+    if (+st.temp > 0) crit.push(s.Tm >= +st.temp);
+    if (+st.pi > 0) crit.push(s.E >= +st.pi);
+    if (+st.rot > 0) crit.push(s.rev >= +st.rot);
+    const ok = !crit.length || (st.cond === 'B' ? crit.every(Boolean) : crit.some(Boolean));
+    if (ok && done) seqGoto(s, q.i + 1);
+    return;
+  }
+  // Descarga
+  s.feedCmd = false; s.ramCmd = 'up'; s.jetReq = false; s.rpmSP = +R.ddRpm || 25;
+  if (q.phase === 0 && s.Tdrop === null && s.batchActive) markDrop(s);
+  q.waitMill = q.phase === 0 && s.pile > 20;
+  if (q.phase === 0 && !q.waitMill && s.pos < MACH.stroke * 0.5) { markDrop(s); s.dropCmd = true; q.phase = 1; q.dd = 0; }
+  if (q.phase === 1) { if (s.drop > 0.6) q.dd += dt; if (q.dd >= (+R.ddTime || 10)) { s.dropCmd = false; q.phase = 2; } }
+  if (q.phase === 2 && s.drop < 0.02) {
+    if (s.batchActive) finishBatch(s);
+    s.stepIdx = -1;
+    if (s.onPlanDone) s.onPlanDone(s);
+    if (q.continuo && !q.stopAfter) { q.wait = 4; q.running = true; q.phase = 3; emit(s, 'info', 'Ciclo contínuo: próxima batelada em 4 s'); }
+    else { q.running = false; s.rpmSP = 20; }
+  }
+}
+
+// Simulação completa sem interface, usada para prever as curvas da receita
+function predict(R) {
+  const s = newState();
+  seqStart(s, R);
+  const dt = 0.1;
+  for (let i = 0; i < 12000 && !s.finished; i++) { sequencer(s, dt); physics(s, dt); }
+  return s.finished;
+}
+// ==MODEL END==
+
+// ==RECIPES START==
+// Formato igual à ficha "Mixing Process": matriz de até 12 passos.
+// fw: 'up' | 'middle' | 'down' | 'press'. cond 'A' = o primeiro critério atingido encerra o passo; 'B' = todos os critérios.
+const EMPTY_STEP = () => ({ fw: '', airBlow: false, airCharge: false, hopper: false, carbon: false, oil: false, rpm: 0, time: 0, temp: 0, pi: 0, rot: 0, cond: 'A' });
+function mkSteps(list) { const a = list.map(x => Object.assign(EMPTY_STEP(), x)); while (a.length < 12) a.push(EMPTY_STEP()); return a; }
+const DEFAULT_RECIPES = [
+  {
+    id: 's337y', compound: 'S337Y', klass: 'S', mixDiv: 'A', hqNo: '2', wtNo: '17', slitter: 4, thickness: 8.0, limitDay: 30,
+    approve: '', check: '', make: '',
+    ingredients: [{ code: '', name: 'S337X', tipo: 'mb', kg: 305, tol: 1 }],
+    carbon: [{ no: 4, kind: 'N220*ISAF*', kg: 17.4, step: 1 }],
+    oil: [],
+    steps: mkSteps([
+      { fw: 'up', carbon: true, rpm: 42, time: 5 },
+      { fw: 'down', rpm: 42, time: 45 },
+      { fw: 'up', airBlow: true, rpm: 25, time: 12 },
+      { fw: 'down', rpm: 25, time: 40, temp: 150 },
+    ]),
+    jog: 200, jog2: '', cut: '', ddTime: 10, ddRpm: 25,
+    tcu: { casing: 35, rotor: 40, door: 45 }, guardMax: 180, guardMin: 140,
+  },
+  {
+    id: 'mb-exemplo', compound: 'MB-EXEMPLO', klass: 'M', mixDiv: 'A', hqNo: '1', wtNo: '1', slitter: 4, thickness: 8.0, limitDay: 30,
+    approve: '', check: '', make: '',
+    ingredients: [{ code: '', name: 'NR/SBR', tipo: 'polimero', kg: 190, tol: 1 }, { code: '', name: 'Químicos (ZnO, ácido esteárico, AO)', tipo: 'quimicos', kg: 14, tol: 0.2 }],
+    carbon: [{ no: 1, kind: 'N234', kg: 63, step: 2 }, { no: 1, kind: 'N234', kg: 32, step: 4 }],
+    oil: [{ no: 1, kind: 'Óleo TDAE', kg: 14, step: 4 }],
+    steps: mkSteps([
+      { fw: 'down', rpm: 40, time: 30 },
+      { fw: 'up', carbon: true, rpm: 40, time: 5 },
+      { fw: 'down', rpm: 50, time: 90, temp: 115 },
+      { fw: 'up', carbon: true, oil: true, rpm: 40, time: 5 },
+      { fw: 'down', rpm: 50, time: 120, temp: 138 },
+      { fw: 'up', airBlow: true, rpm: 40, time: 8 },
+      { fw: 'down', rpm: 50, time: 150, temp: 158 },
+    ]),
+    jog: 200, jog2: '', cut: '', ddTime: 10, ddRpm: 30,
+    tcu: { casing: 35, rotor: 40, door: 45 }, guardMax: 175, guardMin: 145,
+  },
+  {
+    id: 'final-exemplo', compound: 'FINAL-EXEMPLO', klass: 'F', mixDiv: 'A', hqNo: '1', wtNo: '2', slitter: 4, thickness: 8.0, limitDay: 15,
+    approve: '', check: '', make: '',
+    ingredients: [{ code: '', name: 'Masterbatch', tipo: 'mb', kg: 305, tol: 1 }, { code: '', name: 'Enxofre + acelerador', tipo: 'curativos', kg: 7, tol: 0.05 }],
+    carbon: [], oil: [],
+    steps: mkSteps([
+      { fw: 'down', rpm: 25, time: 40 },
+      { fw: 'up', airBlow: true, rpm: 20, time: 6 },
+      { fw: 'down', rpm: 25, time: 60, temp: 104 },
+    ]),
+    jog: 200, jog2: '', cut: '', ddTime: 10, ddRpm: 20,
+    tcu: { casing: 30, rotor: 35, door: 40 }, guardMax: 115, guardMin: 95,
+  },
+];
+// ==RECIPES END==
+
+// ==UI START==
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const fmt = (v, d = 0) => (isFinite(v) ? v : 0).toFixed(d).replace('.', ',');
+  const mmss = (t) => { t = Math.max(0, Math.floor(t)); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
+  const msShort = (t) => { t = Math.max(0, Math.floor(t)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const css = getComputedStyle(document.documentElement);
+  const C = (n) => css.getPropertyValue(n).trim();
+  const COL = { T: C('--pen-t'), P: C('--pen-p'), E: C('--pen-e'), rpm: C('--pen-rpm'), pr: C('--pen-pr'), pos: C('--pen-pos'),
+    line: C('--line'), line2: C('--line2'), dim: C('--dim'), fg: C('--fg'), inset: C('--inset'), alarm: C('--alarm'), ok: C('--ok'), accent: C('--accent') };
+
+  // ---------- Receitas (salvas no navegador) ----------
+  const KEY = 'no1mixer.receitas.v2';
+  function normRecipe(R) {
+    R.ingredients = R.ingredients || [];
+    while (R.ingredients.length < 6) R.ingredients.push({ code: '', name: '', tipo: 'polimero', kg: 0, tol: 0 });
+    R.steps = R.steps || [];
+    while (R.steps.length < 12) R.steps.push(EMPTY_STEP());
+    if (!R.co) {
+      R.co = (R.carbon || []).map(x => ({ type: 'CARBON', no: x.no, kind: x.kind, kg: x.kg, step: x.step }))
+        .concat((R.oil || []).map(x => ({ type: 'OIL', no: x.no, kind: x.kind, kg: x.kg, step: x.step })));
+    }
+    while (R.co.length < 8) R.co.push({ type: '', no: '', kind: '', kg: 0, step: '' });
+    R.carbon = R.co.filter(x => x.type === 'CARBON' && +x.kg > 0);
+    R.oil = R.co.filter(x => x.type === 'OIL' && +x.kg > 0);
+    R.tcu = R.tcu || { casing: 35, rotor: 40, door: 45 };
+    R.nome = R.compound;
+    R.tMax = +R.guardMax; R.janMin = +R.guardMin; R.janMax = +R.guardMax; R.tempoMax = 900;
+    R.tipo = R.ingredients.some(x => x.tipo === 'curativos' && +x.kg > 0) ? 'final' : 'masterbatch';
+    return R;
+  }
+  let recipes;
+  try { recipes = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { recipes = null; }
+  if (!Array.isArray(recipes) || !recipes.length) recipes = clone(DEFAULT_RECIPES);
+  recipes.forEach(normRecipe);
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(recipes)); } catch (e) {} };
+  let editId = recipes[0].id;
+  const recById = (id) => recipes.find(r => r.id === id) || recipes[0];
+  const runCopy = (R) => { const c = clone(R); normRecipe(c); return c; };
+
+  // ---------- Programação de produção ----------
+  let plan = [{ recId: recipes[0].id, qty: 53, done: 0 }];
+  const planCur = () => plan.find(p => p.done < p.qty) || null;
+  const activeRecipe = () => { const p = planCur(); return p ? recById(p.recId) : recById(editId); };
+
+  // ---------- Estado ----------
+  let S = newState();
+  let mode = 'auto', speed = 1;
+  let manRef = 0; // referência manual de rotação do motor principal (rpm)
+  const clock0 = Date.now();
+  const history = [];
+  const alarms = [];
+  const batches = [];
+  let predCache = {};
+  let showSel = 'cur', cmpSel = 'none';
+  let angL = 0, angR = 0;
+
+  const evalRecipe = () => (S.seq && S.seq.R) ? S.seq.R : activeRecipe();
+
+  S.onEvent = onModelEvent;
+  S.onPlanDone = (s) => {
+    const p = planCur();
+    if (p && s.seq && s.seq.R && p.recId === s.seq.R.id) p.done++;
+    const nx = planCur();
+    if (!nx) { s.seq.stopAfter = true; toast('Programação concluída.'); }
+    else if (nx.recId !== s.seq.R.id) { s.seq.R = runCopy(recById(nx.recId)); s.seq.R._steps = activeSteps(s.seq.R); }
+    renderPlan();
+  };
+  function onModelEvent(type, msg, s) {
+    if (type === 'batchstart') {
+      s._recName = evalRecipe().nome; s._mode = mode; s._R = clone(evalRecipe());
+      batches.push({ no: s.batchNo, comp: s._recName, t0: s.t, t1: null });
+      if (batches.length > 300) batches.shift();
+    }
+    if (type === 'safety') raise('SEGDESC', 'warn', msg);
+    if (type === 'batchend') {
+      const r = s.finished;
+      r.rec = s._recName; r.mode = s._mode; r.R = s._R; r.Treal = s._TrealDrop;
+      r.ev = evaluate(r, r.R);
+      const b = batches.find(x => x.no === r.no); if (b) b.t1 = s.t;
+      history.unshift(r); if (history.length > 60) history.pop();
+      clearA('SEGDESC');
+      if (r.Tdrop !== null && r.R && r.Tdrop < r.R.guardMin) raise('TMIN', 'warn', 'Batch ' + r.no + ' descarregado abaixo da temperatura mínima (' + fmt(r.Tdrop, 0) + ' °C < ' + r.R.guardMin + ' °C)');
+      toast('Batch ' + r.no + ' descarregado: ' + r.ev.label + (r.ev.msgs.length ? '. ' + r.ev.msgs[0] : ''));
+      renderHistory(); refreshShowSel(); fillBatchSel();
+    }
+  }
+
+  function evaluate(r, R) {
+    const msgs = []; let lvl = 0;
+    const T = r.Tdrop;
+    if (R && T !== null && T !== undefined) {
+      if (T < R.guardMin) { msgs.push('Descarga abaixo do mínimo (' + fmt(T, 0) + ' °C < ' + R.guardMin + ' °C)'); lvl = Math.max(lvl, 1); }
+    }
+    if (r.Treal !== undefined && T !== null && r.Treal - T > 8) { msgs.push('Temperatura real na descarga ' + fmt(r.Treal, 0) + ' °C, ' + fmt(r.Treal - T, 0) + ' °C acima da leitura'); lvl = Math.max(lvl, 1); }
+    if (R && r.Treal !== undefined && r.Treal > R.guardMax) { msgs.push('Massa superaquecida acima de ' + R.guardMax + ' °C'); lvl = 2; }
+    if (r.bFreeFrac > 0.08) { msgs.push('Negro livre na descarga (' + fmt(r.bFreeFrac * 100, 0) + '%)'); lvl = 2; }
+    else if (r.bFreeFrac > 0.04) { msgs.push('Negro livre na descarga (' + fmt(r.bFreeFrac * 100, 1) + '%)'); lvl = Math.max(lvl, 1); }
+    const firstStage = R && R.ingredients.some(x => x.tipo === 'polimero' && +x.kg > 0) && R.carbon.length;
+    if (firstStage) {
+      if (r.D < 65) { msgs.push('Dispersão do negro insuficiente (' + fmt(r.D, 0) + '%)'); lvl = 2; }
+      else if (r.D < 72) { msgs.push('Dispersão no limite (' + fmt(r.D, 0) + '%)'); lvl = Math.max(lvl, 1); }
+    }
+    if (r.hasCur && r.cuFreeFrac > 0.05) { msgs.push('Curativos mal dispersos (' + fmt(r.cuFreeFrac * 100, 0) + '% sem incorporar)'); lvl = 2; }
+    if (r.scorch > 60) { msgs.push('Risco de scorch: curativos expostos acima de 112 °C'); lvl = 2; }
+    else if (r.scorch > 10) { msgs.push('Atenção ao scorch: curativos passaram de 112 °C'); lvl = Math.max(lvl, 1); }
+    if (r.ff < 0.65 || r.ff > 0.80) { msgs.push('Fator de enchimento ' + fmt(r.ff, 2) + ' fora da janela 0,65 a 0,80'); lvl = Math.max(lvl, 1); }
+    return { lvl, label: ['Aprovado', 'Aprovado com ressalva', 'Reprovado'][lvl], cls: ['ok', 'wn', 'bad'][lvl], msgs };
+  }
+
+  // ---------- Alarmes ----------
+  let alSeq = 0;
+  const clockAt = (t) => new Date(clock0 + t * 1000);
+  const hms = (t) => clockAt(t).toLocaleTimeString('pt-BR');
+  function nowStr() { return hms(S.t); }
+  function raise(code, sev, msg) {
+    if (alarms.some(a => a.code === code && !a.tOff)) return;
+    alarms.unshift({ id: ++alSeq, code, sev, msg, tOn: nowStr(), tOff: null, ack: false });
+    if (alarms.length > 200) alarms.pop();
+    if (code === 'TMIN') setTimeout(() => clearA('TMIN'), 50);
+    renderAlarms();
+  }
+  function clearA(code) {
+    let ch = false;
+    alarms.forEach(a => { if (a.code === code && !a.tOff) { a.tOff = nowStr(); ch = true; } });
+    if (ch) renderAlarms();
+  }
+  function cond(code, on, sev, msg) { if (on) raise(code, sev, msg); else clearA(code); }
+  function checkAlarms() {
+    const R = evalRecipe(), m = S.m, M = massOf(m);
+    cond('TALTA', S.Tm > R.guardMax, 'crit', 'Temperatura alta na câmara (' + fmt(S.Tm, 0) + ' °C, guarda máx. ' + R.guardMax + ' °C)');
+    cond('SCORCH', (m.cuF + m.cuI) > 0.1 && S.Tm > 110, 'crit', 'Curativos na câmara acima de 110 °C: risco de pré-vulcanização');
+    cond('SOBREC', S.overload, 'warn', 'Sobrecarga do motor principal: rotação limitada pelo acionamento');
+    cond('AGUA', S.faults.agua, 'warn', 'Vazão baixa na água do TCU (câmara, rotores e porta de descarga)');
+    cond('TCU', !S.tcu && S.batchActive, 'warn', 'Controle de temperatura (TCU) parado durante a mistura');
+    cond('AR', S.faults.ar, 'warn', 'Pressão de ar baixa no cilindro do pistão');
+    cond('ENCH', S.overfill > 15 && S.ramCmd === 'down' && S.pos < MACH.stroke * 0.9 && S.press > 2, 'warn', 'Pistão não assenta: excesso de material na câmara');
+    cond('EMERG', S.emerg, 'crit', 'Parada de emergência acionada');
+    cond('TEMPO', mode === 'man' && S.batchActive && S.bt > R.tempoMax, 'warn', 'Tempo de batch muito acima do normal (' + R.tempoMax + ' s)');
+    cond('DESCROT', S.dropCmd && M > 1 && S.rpm < 2, 'warn', 'Porta de descarga aberta com rotores parados: câmara não esvazia');
+  }
+  function renderAlarms() {
+    const un = alarms.filter(a => !a.ack).length;
+    $('alBadge').hidden = !un; $('alBadge').textContent = un;
+    const rows = alarms.map(a => '<tr class="' + (a.tOff ? 'cleared' : (a.ack ? '' : 'unack')) + '">' +
+      '<td class="n">' + a.tOn + '</td><td><span class="sev ' + a.sev + '">' + (a.sev === 'crit' ? 'CRÍTICO' : 'ALERTA') + '</span></td>' +
+      '<td>' + esc(a.msg) + '</td><td class="n">' + (a.tOff ? 'normal ' + a.tOff : 'ATIVO') + '</td>' +
+      '<td>' + (a.ack ? 'reconhecido' : '<button class="btn" data-ack="' + a.id + '" type="button">Reconhecer</button>') + '</td></tr>').join('');
+    $('alTbl').innerHTML = '<tr><th>Início</th><th>Prioridade</th><th>Mensagem</th><th>Estado</th><th></th></tr>' + (rows || '<tr><td colspan="5" class="note">Nenhum alarme registrado.</td></tr>');
+    renderBanner();
+  }
+  function renderBanner() {
+    const act = alarms.filter(a => !a.tOff || !a.ack);
+    const pick = act.find(a => !a.ack && a.sev === 'crit') || act.find(a => !a.ack) || act.find(a => !a.tOff);
+    const b = $('banner');
+    b.className = 'banner' + (pick ? ' ' + pick.sev + (pick.ack ? '' : ' blink') : '');
+    $('bnSev').className = 'sev ' + (pick ? pick.sev : 'info');
+    $('bnSev').textContent = pick ? (pick.sev === 'crit' ? 'CRÍTICO' : 'ALERTA') : 'OK';
+    $('bnText').textContent = pick ? pick.tOn + '  ' + pick.msg + (pick.tOff ? ' (normalizado)' : '') : 'Sem alarmes ativos';
+    $('bnAck').hidden = !pick || pick.ack; $('bnAck').dataset.id = pick ? pick.id : '';
+  }
+  function ack(id) { alarms.forEach(a => { if (id === 'all' || a.id === +id) a.ack = true; }); renderAlarms(); }
+  $('alTbl').addEventListener('click', e => { const b = e.target.closest('[data-ack]'); if (b) ack(b.dataset.ack); });
+  $('ackAll').onclick = () => ack('all');
+  $('bnAck').onclick = () => ack($('bnAck').dataset.id);
+
+  let toastT = 0;
+  function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 6500); }
+
+  // ---------- Abas ----------
+  let view = 'op';
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => setView(t.dataset.v));
+  function setView(v) {
+    view = v;
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.v === v));
+    document.querySelectorAll('.view').forEach(s => s.hidden = s.id !== 'v-' + v);
+    if (v === 'rec') renderRecipeEditor();
+    if (v === 'gr') { refreshShowSel(); drawTrends(); }
+    if (v === 'tr') { fillBatchSel(); drawTR(); }
+    if (v === 'hi') renderHistory();
+  }
+
+  // ---------- Topo ----------
+  $('speed').onchange = e => speed = +e.target.value;
+  $('estop').onclick = () => {
+    if (!S.emerg) {
+      S.emerg = true; S.rotors = false; S.motor = false;
+      if (S.seq && S.seq.running) { S.seq.running = false; S.stepIdx = -1; }
+      $('estop').textContent = 'Rearmar'; $('estop').classList.add('on');
+      toast('Emergência: rotores e pistão parados. Dê o reset de segurança e conclua o batch em modo manual.');
+    } else {
+      S.emerg = false; S.rotors = false; S.ramCmd = 'up';
+      $('estop').textContent = 'Emergência'; $('estop').classList.remove('on');
+      if (S.batchActive) setMode('man');
+    }
+  };
+
+  // ---------- Modo ----------
+  $('bModeAuto').onclick = () => setMode('auto');
+  $('bModeMan').onclick = () => setMode('man');
+  function setMode(m) {
+    if (m === mode) return;
+    if (m === 'auto') {
+      if (S.batchActive || massOf(S.m) > 0.3 || S.hopper.length) { $('manMsg').textContent = 'Para voltar ao automático, termine o batch e esvazie a câmara.'; if (typeof cpMsg === 'function') try { cpMsg('Seletor Mixing: termine o batch e esvazie a câmara antes de voltar ao automático.'); } catch (e) {} return; }
+    } else if (S.seq && (S.seq.running || S.seq.wait > 0)) {
+      S.seq.running = false; S.seq.wait = 0; S.stepIdx = -1;
+      S.events.push({ t: S.bt, type: 'info', msg: 'Operador assumiu o modo manual' });
+    }
+    mode = m;
+    if (m === 'man') { manRef = S.motor && S.rpm > 1 ? Math.round(S.rpmSP) : 0; $('mRpm').value = manRef; $('mPr').value = S.pressSP; syncManOut(); }
+    $('manMsg').textContent = ''; $('autoMsg').textContent = '';
+    $('ctlAuto').hidden = m !== 'auto'; $('ctlMan').hidden = m !== 'man';
+    $('ctlTitle').textContent = m === 'auto' ? 'Comando automático' : 'Comando manual';
+    $('pMode').textContent = m === 'auto' ? 'Automático' : 'Manual';
+    $('pMode').className = 'pill ' + (m === 'auto' ? 'mode-auto' : 'mode-man');
+    $('bModeAuto').classList.toggle('on', m === 'auto'); $('bModeMan').classList.toggle('on', m === 'man');
+    try { renderSel(); } catch (e) {}
+  }
+
+  // ---------- Automático ----------
+  $('bStart').onclick = () => {
+    const msg = $('autoMsg');
+    if (S.emerg) { msg.textContent = 'Dê o reset de segurança primeiro.'; return; }
+    if (S.seq && (S.seq.running || S.seq.wait > 0)) { msg.textContent = 'O ciclo já está em andamento.'; return; }
+    if (massOf(S.m) > 0.3 || S.batchActive) { msg.textContent = 'A câmara não está vazia. Descarregue em modo manual.'; return; }
+    if (!S.motor || !S.aux || !S.tcu) { msg.textContent = 'Faça a preparação no painel: ligue motor auxiliar, controle de temperatura e motor principal.'; return; }
+    if (S.fault) { msg.textContent = 'Falha ativa: pressione Resetar falha no painel.'; return; }
+    const p = planCur();
+    if (!p) { msg.textContent = 'Programação vazia: programe um composto na tela de operação.'; return; }
+    const R = runCopy(recById(p.recId));
+    if (!activeSteps(R).length) { msg.textContent = 'A receita não tem passos preenchidos.'; return; }
+    msg.textContent = '';
+    seqStart(S, R); S.seq.continuo = $('cont').checked; renderMatrix(true);
+  };
+  $('cont').onchange = e => { if (S.seq) S.seq.continuo = e.target.checked; };
+  $('bHold').onclick = () => { if (S.seq && S.seq.running) { S.seq.hold = !S.seq.hold; S.events.push({ t: S.bt, type: 'info', msg: S.seq.hold ? 'Parada temporária' : 'Parada temporária resetada' }); } };
+  $('bAbort').onclick = () => {
+    const q = S.seq; if (!q || !q.running) return;
+    const n = q.R._steps.length;
+    if (q.i !== n) { q.hold = false; S.events.push({ t: S.bt, type: 'info', msg: 'Descarga antecipada pelo operador' }); seqGotoUI(n, 'operador'); }
+  };
+  function seqGotoUI(i, why) { seqGoto(S, i, why); }
+
+  // ---------- Manual ----------
+  $('mIng').innerHTML = Object.keys(ING).map(k => '<option value="' + k + '">' + ING[k].n + '</option>').join('');
+  function syncManOut() { $('oRpm').textContent = $('mRpm').value + ' rpm'; $('oPr').textContent = fmt(+$('mPr').value, 1) + ' bar'; }
+  $('mRpm').oninput = e => { setManRef(+e.target.value); };
+  $('mPr').oninput = e => { S.pressSP = +e.target.value; syncManOut(); };
+  const man = (fn) => () => { $('manMsg').textContent = ''; if (S.emerg) { $('manMsg').textContent = 'Emergência acionada: dê o reset de segurança antes de operar.'; return; } fn(); };
+  $('mRotOn').onclick = man(() => { motorOn(); $('manMsg').textContent = $('cpMsg').textContent; });
+  $('mRotOff').onclick = man(() => { S.motor = false; S.rotors = false; });
+  $('mRamUp').onclick = man(() => { S.ramCmd = 'up'; });
+  $('mRamDn').onclick = man(() => {
+    if (S.feedCmd || S.feed > 0.02) { $('manMsg').textContent = 'Intertravamento: feche a porta de alimentação antes de descer o pistão.'; return; }
+    S.ramCmd = 'down'; S.pressSP = +$('mPr').value;
+  });
+  $('mFeedOp').onclick = man(() => {
+    if (S.ramCmd === 'down' || S.pos > MACH.stroke * 0.03) { $('manMsg').textContent = 'Intertravamento: o pistão precisa estar totalmente em cima para abrir a porta de alimentação.'; return; }
+    if (S.dropCmd) { $('manMsg').textContent = 'Intertravamento: feche a porta de descarga antes de carregar.'; return; }
+    S.feedCmd = true;
+  });
+  $('mFeedCl').onclick = man(() => { S.feedCmd = false; });
+  $('mLoad').onclick = man(() => {
+    const kg = +$('mKg').value, ing = $('mIng').value;
+    if (!(kg > 0)) { $('manMsg').textContent = 'Informe a quantidade em kg.'; return; }
+    S.scale.push({ ing, kg, total: kg });
+    $('manMsg').textContent = ING[ing].n + ' ' + fmt(kg, 1) + ' kg na balança. Pressione Peso confirmar no painel para enviar à tremonha.';
+  });
+  $('mDropOp').onclick = man(() => {
+    if (S.feedCmd) { $('manMsg').textContent = 'Intertravamento: feche a porta de alimentação antes de descarregar.'; return; }
+    S.dropCmd = true; S.dropManCmd = true; if (massOf(S.m) > 0.5 && S.batchActive) markDrop(S);
+  });
+  $('mDropCl').onclick = man(() => { S.dropCmd = false; S.dropManCmd = false; });
+
+  // ---------- Instrutor ----------
+  $('fAgua').onchange = e => S.faults.agua = e.target.checked;
+  $('fTerm').onchange = e => S.faults.termopar = e.target.checked;
+  $('fAr').onchange = e => S.faults.ar = e.target.checked;
+  $('fTw').oninput = e => { S.Tw = +e.target.value; S._twManual = true; $('oTw').textContent = e.target.value + ' °C'; };
+
+  // ---------- Sinótico ----------
+  const el = {};
+  ['ram', 'ramRod', 'ramPiston', 'feedDoor', 'dropDoor', 'rotL', 'rotR', 'mat', 'matTint', 'hopFill', 'falling', 'pile', 'posBar',
+    'tPress', 'tTemp', 'tRpm', 'tPos', 'tFeed', 'tDrop', 'tHop', 'tPile', 'tRamCmd', 'feedLamp', 'dropLamp', 'motLamp', 'ramDownLamp', 'ramUpLamp', 'jetLamp', 'synInfo'].forEach(k => el[k] = $(k));
+  const COL_WARN = C('--warn'), C_OFF = C('--off');
+  function drawSyn(sdt) {
+    const f = S.pos / MACH.stroke;
+    const y = 120 + f * 156;
+    el.ram.setAttribute('transform', 'translate(0 ' + y.toFixed(1) + ')');
+    el.ramRod.setAttribute('height', (y - 100 + 2).toFixed(1));
+    el.ramPiston.setAttribute('y', (22 + f * 68).toFixed(1));
+    el.feedDoor.setAttribute('transform', 'rotate(' + (-78 * S.feed).toFixed(1) + ' 203 190)');
+    el.dropDoor.setAttribute('transform', 'translate(0 ' + (40 * S.drop).toFixed(1) + ') rotate(' + (-25 * S.drop).toFixed(1) + ' 246 486)');
+    angL = (angL + S.rpm * 6 * sdt) % 360; angR = (angR - S.rpm * 6 * 1.1 * sdt) % 360;
+    el.rotL.setAttribute('transform', 'translate(200 398) rotate(' + angL.toFixed(1) + ')');
+    el.rotR.setAttribute('transform', 'translate(360 398) rotate(' + angR.toFixed(1) + ')');
+    const M = massOf(S.m);
+    el.mat.setAttribute('opacity', Math.min(0.95, M / 180).toFixed(2));
+    el.matTint.setAttribute('opacity', clamp((S.T - 50) / 150, 0, 0.5).toFixed(2));
+    const hk = S.hopper.reduce((a, h) => a + h.kg, 0);
+    el.hopFill.setAttribute('opacity', hk > 0 ? 0.85 : 0);
+    el.tHop.textContent = S.hopper.length ? S.hopper.map(h => (h.nome || ING[h.ing].s) + ' ' + fmt(h.kg, 0) + ' kg').join(' + ') : 'vazia';
+    el.falling.setAttribute('opacity', S.drop > 0.6 && M > 0.3 ? 0.9 : 0);
+    const ph = Math.min(26, S.pile / 320 * 24);
+    el.pile.setAttribute('y', (580 - ph).toFixed(1)); el.pile.setAttribute('height', ph.toFixed(1));
+    el.posBar.setAttribute('height', (168 * f).toFixed(1));
+    el.tPress.textContent = fmt(S.press, 1) + ' bar';
+    el.tTemp.textContent = fmt(S.Tm, 0) + ' °C';
+    el.tRpm.textContent = fmt(S.rpm, 0) + ' rpm';
+    el.tPos.textContent = fmt(f * 100, 0) + ' %';
+    el.tRamCmd.textContent = 'COMANDO: ' + (S.ramCmd === 'down' ? 'DESCER' : S.ramCmd === 'stop' ? 'PARADO' : 'SUBIR');
+    el.tFeed.textContent = S.feed > 0.98 ? 'ABERTA' : (S.feed < 0.02 ? 'FECHADA' : 'EM MOVIMENTO');
+    el.tDrop.textContent = S.drop > 0.98 ? 'ABERTA' : (S.drop < 0.02 ? 'FECHADA' : 'EM MOVIMENTO');
+    el.tPile.textContent = fmt(S.pile, 0) + ' kg';
+    const lamp = (e, on, mv) => e.setAttribute('fill', mv ? COL_WARN : (on ? COL.ok : C_OFF));
+    lamp(el.feedLamp, S.feed > 0.98, S.feed > 0.02 && S.feed < 0.98);
+    lamp(el.dropLamp, S.drop > 0.98, S.drop > 0.02 && S.drop < 0.98);
+    lamp(el.motLamp, S.rpm > 1, false);
+    lamp(el.ramDownLamp, f > 0.95, false);
+    lamp(el.ramUpLamp, f < 0.02, false);
+    lamp(el.jetLamp, S.jet, false);
+  }
+
+  // ---------- Painel de valores ----------
+  function setBar(id, frac) { $(id).style.width = (clamp(frac, 0, 1) * 100).toFixed(1) + '%'; }
+  let lastEv = '';
+  function updatePV() {
+    const R = evalRecipe(), M = massOf(S.m), q = S.seq;
+    const steps = R._steps || activeSteps(R);
+    $('vT').textContent = fmt(S.Tm, 1);
+    const ds = steps.filter(x => +x.temp > 0); const dropSP = ds.length ? +ds[ds.length - 1].temp : null;
+    $('vTsp').textContent = 'SP ' + (dropSP !== null ? dropSP + ' °C' : '—') + ' · guarda ' + R.guardMin + '–' + R.guardMax;
+    setBar('bT', S.Tm / 200); $('mkT').style.left = ((dropSP || 0) / 200 * 100) + '%'; $('mkT').hidden = dropSP === null;
+    $('cT').className = 'pvc' + (S.Tm > R.guardMax ? ' al' : '');
+    $('vP').textContent = fmt(S.P, 0); $('vPpk').textContent = 'pico ' + fmt(S.Ppk, 0) + ' kW · motor ' + MACH.motorMax;
+    setBar('bP', S.P / MACH.motorMax); $('cP').className = 'pvc' + (S.overload ? ' al' : '');
+    $('vE').textContent = fmt(S.E, 1); $('vEkg').textContent = fmt(S.kgCharged ? S.E / S.kgCharged : 0, 3) + ' kWh/kg';
+    setBar('bE', S.E / 40); $('mkE').hidden = true;
+    $('vR').textContent = fmt(S.rpm, 0); $('vRsp').textContent = (mode === 'man' ? 'ref. manual ' : 'SP ') + fmt(S.rotors && S.motor ? S.rpmSP : 0, 0) + ' rpm'; setBar('bR', S.rpm / MACH.rpmMax);
+    $('vPr').textContent = fmt(S.press, 1); $('vPrsp').textContent = 'SP ' + fmt(S.ramCmd === 'down' ? S.pressSP : 0, 1) + ' bar'; setBar('bPr', S.press / MACH.pressMax);
+    $('vPos').textContent = fmt(S.pos / MACH.stroke * 100, 0); $('vPosmm').textContent = fmt(S.pos, 0) + ' mm de ' + MACH.stroke; setBar('bPos', S.pos / MACH.stroke);
+    $('vBt').textContent = S.batchActive || S.bt ? mmss(S.bt) : '00:00';
+    $('vSt').textContent = 'passo ' + (q && q.running ? mmss(q.st) : '--:--');
+    const ff = volOf(S.m) / MACH.vol;
+    $('vFF').textContent = fmt(ff, 2); $('cFF').className = 'pvc' + (M > 1 && (ff > 0.8) ? ' wn' : '');
+    $('vD').textContent = fmt(S.D, 0); $('vInc').textContent = 'negro livre ' + fmt(S.m.bF, 1) + ' kg';
+    $('pvMass').textContent = 'massa na câmara ' + fmt(M, 0) + ' kg';
+    $('iRot').className = 'ind' + (S.rpm > 1 ? ' on' : ''); $('iRam').className = 'ind' + (S.pos > MACH.stroke * 0.95 ? ' on' : '');
+    $('iFeed').className = 'ind' + (S.feed > 0.98 ? ' on' : (S.feed > 0.02 ? ' mv' : '')); $('iDrop').className = 'ind' + (S.drop > 0.98 ? ' on' : (S.drop > 0.02 ? ' mv' : ''));
+    $('mRotOn').classList.toggle('on', S.motor); $('mRamDn').classList.toggle('on', S.ramCmd === 'down'); $('mRamUp').classList.toggle('on', S.ramCmd === 'up');
+    $('mFeedOp').classList.toggle('on', S.feedCmd); $('mDropOp').classList.toggle('on', S.dropCmd);
+    // topo
+    $('mRec').textContent = R.nome;
+    $('mBatch').textContent = S.batchNo;
+    $('mStep').textContent = q && q.running ? stepName(q.R, q.i) : (q && q.wait > 0 ? 'aguardando próximo batch' : '—');
+    $('mClock').textContent = nowStr();
+    let st = ['', 'Parado'];
+    if (S.emerg) st = ['alarm', 'Emergência'];
+    else if (q && q.running && q.hold) st = ['warn', 'Parada temporária'];
+    else if (q && q.running && q.waitOp) st = ['warn', 'Aguardando operador'];
+    else if (q && q.running) st = ['ok', 'Em ciclo'];
+    else if (q && q.wait > 0) st = ['ok', 'Próximo batch'];
+    else if (S.batchActive) st = ['ok', 'Batch manual'];
+    else if (S.rpm > 1) st = ['', 'Rotores girando'];
+    $('pState').className = 'pill ' + st[0]; $('pStateT').textContent = st[1];
+    $('bHold').textContent = q && q.hold ? 'Continuar sequência' : 'Pausar sequência';
+    $('bStart').disabled = !!(q && (q.running || q.wait > 0)) || mode !== 'auto';
+    $('synInfo').textContent = S.hopper.length ? 'material na tremonha' : '';
+    let now = '';
+    if (q && q.running) {
+      const stp = q.R._steps[q.i];
+      now = stepName(q.R, q.i) + (stp ? ' · fim: ' + condText(stp) : '');
+      if (q.waitOp === 'borracha') now += ' · aguardando operador: Peso confirmar e Alimentação de borracha concluída';
+      if (q.waitOp === 'carbono') now += ' · aguardando operador: ligar Alimentação de carbono';
+      if (q.i === q.R._steps.length && sel.ddKey !== 'auto') now += ' · chave da drop door fora do automático: o operador abre (ABERTO) e fecha (FECHADO) a porta';
+      if (q.waitMill) now += ' · aguardando moinho livre (Timer do moinho reset)';
+    }
+    $('seqNow').textContent = now;
+    const evs = S.events.slice(-40).reverse();
+    const evh = evs.map(e => '<div>' + mmss(e.t) + '  <b>' + esc(e.msg) + '</b></div>').join('') || '<div>Nenhum evento. Faça a preparação no painel e inicie o ciclo.</div>';
+    if (evh !== lastEv) { $('evList').innerHTML = evh; lastEv = evh; }
+  }
+  // ---------- Gráficos ----------
+  const PANES = {
+    T: { label: 'Temperatura', u: '°C', min: 0, max: 200, key: 'T', col: 'T', d: 0 },
+    P: { label: 'Potência', u: 'kW', min: 0, max: 2000, key: 'P', col: 'P', d: 0 },
+    E: { label: 'Energia', u: 'kWh', min: 0, max: null, key: 'E', col: 'E', d: 1 },
+    rpm: { label: 'Rotor', u: 'rpm', min: 0, max: 60, key: 'rpm', col: 'rpm', d: 0 },
+    ram: { label: 'Pistão', u: 'bar', min: 0, max: 8, key: 'pr', col: 'pr', d: 1, key2: 'pos', col2: 'pos', max2: 100, u2: '%' },
+  };
+  const paneOn = { T: true, P: true, E: true, rpm: true, ram: true };
+  document.querySelectorAll('[data-pane]').forEach(c => c.onchange = () => { paneOn[c.dataset.pane] = c.checked; drawTrends(); });
+  $('grShow').onchange = e => { showSel = e.target.value; drawTrends(); };
+  $('grCmp').onchange = e => { cmpSel = e.target.value; drawTrends(); };
+  function refreshShowSel() {
+    const opts = ['<option value="cur">Batelada atual' + (S.batchActive ? ' (em andamento)' : '') + '</option>']
+      .concat(history.map(h => '<option value="' + h.no + '">Batelada ' + h.no + ' · ' + esc(h.rec) + '</option>'));
+    $('grShow').innerHTML = opts.join(''); $('grShow').value = showSel;
+    if ($('grShow').value !== showSel) { showSel = 'cur'; $('grShow').value = 'cur'; }
+  }
+  function getPred(R) {
+    const k = JSON.stringify(R);
+    if (!predCache[k]) { const r = predict(clone(R)); predCache[k] = r ? { trend: r.trend, events: r.events, no: 'prev' } : { trend: [], events: [] }; }
+    return predCache[k];
+  }
+  function shownData() {
+    let main, R;
+    if (showSel === 'cur') { main = { trend: S.trend, events: S.events }; R = S.batchActive ? (S._R || evalRecipe()) : (history[0] && S.trend === history[0].trend ? history[0].R : evalRecipe()); }
+    else { const h = history.find(x => String(x.no) === String(showSel)); main = h || { trend: [], events: [] }; R = h ? h.R : evalRecipe(); }
+    let cmp = null;
+    if (cmpSel === 'pred' && R) cmp = getPred(R);
+    if (cmpSel === 'prev') {
+      const idx = showSel === 'cur' ? (S.batchActive ? 0 : 1) : history.findIndex(x => String(x.no) === String(showSel)) + 1;
+      cmp = history[idx] || null;
+    }
+    return { main, cmp, R };
+  }
+  let hoverT = null;
+  const cv = $('trendCv');
+  cv.addEventListener('mousemove', e => { const r = cv.getBoundingClientRect(); hoverX = e.clientX - r.left; drawTrends(); });
+  cv.addEventListener('mouseleave', () => { hoverX = null; $('grCursor').textContent = ''; drawTrends(); });
+  let hoverX = null;
+  function setupCanvas(c, h) {
+    const dpr = window.devicePixelRatio || 1, w = c.clientWidth || 600;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); c.style.height = h + 'px'; }
+    const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    return { g, w, h };
+  }
+  function line(g, data, key, sx, sy, col, dash, width) {
+    if (!data.length) return;
+    g.save(); g.strokeStyle = col; g.lineWidth = width || 1.6; g.setLineDash(dash ? [5, 4] : []); if (dash) g.globalAlpha = 0.7;
+    g.beginPath(); data.forEach((p, i) => { const x = sx(p.t), y = sy(p[key]); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.restore();
+  }
+  function drawTrends() {
+    if (view !== 'gr') return;
+    const { main, cmp, R } = shownData();
+    const keys = Object.keys(PANES).filter(k => paneOn[k]);
+    const PH = 118, GAP = 10, top = 16, bot = 26;
+    const H = top + keys.length * (PH + GAP) + bot;
+    const { g, w } = setupCanvas(cv, Math.max(H, 80));
+    $('grTitle').textContent = showSel === 'cur' ? (S.batchActive ? 'batelada em andamento' : 'última batelada') : 'batelada ' + showSel;
+    const L = 52, Rm = 46, pw = w - L - Rm;
+    const tr = main.trend || [], ct = cmp ? cmp.trend : [];
+    const tEnd = Math.max(60, tr.length ? tr[tr.length - 1].t : 0, ct.length ? ct[ct.length - 1].t : 0);
+    const tMax = Math.ceil(tEnd / 30) * 30;
+    const sx = t => L + t / tMax * pw;
+    g.font = '11px ' + C('--num'); g.textBaseline = 'middle';
+    if (!keys.length) return;
+    keys.forEach((k, pi) => {
+      const p = PANES[k], y0 = top + pi * (PH + GAP);
+      let max = p.max;
+      if (max === null) { const all = tr.concat(ct); max = Math.max(10, Math.ceil(Math.max(0, ...all.map(x => x.E)) / 5) * 5); }
+      const sy = v => y0 + PH - (v - p.min) / (max - p.min) * PH;
+      g.fillStyle = COL.inset; g.fillRect(L, y0, pw, PH);
+      if (k === 'T' && R) { g.fillStyle = 'rgba(70,184,115,0.13)'; g.fillRect(L, sy(R.janMax), pw, sy(R.janMin) - sy(R.janMax));
+        g.strokeStyle = COL.alarm; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(L, sy(R.tMax)); g.lineTo(L + pw, sy(R.tMax)); g.stroke(); g.setLineDash([]);
+        g.fillStyle = COL.alarm; g.textAlign = 'left'; g.fillText('máx ' + R.tMax, L + 4, sy(R.tMax) - 7); }
+      g.strokeStyle = COL.line; g.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) { const v = p.min + (max - p.min) * i / 4, y = sy(v);
+        g.beginPath(); g.moveTo(L, y + .5); g.lineTo(L + pw, y + .5); g.stroke();
+        g.fillStyle = COL.dim; g.textAlign = 'right'; g.fillText(fmt(v, max < 10 ? 1 : 0), L - 6, y);
+        if (p.key2) { g.textAlign = 'left'; g.fillText(fmt(p.max2 * i / 4, 0), L + pw + 6, y); } }
+      g.fillStyle = COL[p.col]; g.textAlign = 'left'; g.font = '600 12px ' + C('--ui');
+      g.fillText(p.label + ' (' + p.u + ')', L + 6, y0 + 10);
+      if (p.key2) { g.fillStyle = COL[p.col2]; g.textAlign = 'right'; g.fillText('Posição (%)', L + pw - 6, y0 + 10); }
+      g.font = '11px ' + C('--num');
+      // etapas
+      (main.events || []).filter(e => e.type === 'step').forEach(e => { const x = sx(e.t); g.strokeStyle = COL.line2; g.beginPath(); g.moveTo(x + .5, y0); g.lineTo(x + .5, y0 + PH); g.stroke();
+        if (pi === 0) { g.fillStyle = COL.dim; g.textAlign = 'left'; g.fillText(e.msg.split('.')[0], x + 3, y0 - 7); } });
+      if (cmp) { line(g, ct, p.key, sx, sy, COL[p.col], true, 1.3); if (p.key2) line(g, ct, p.key2, sx, v => y0 + PH - v / p.max2 * PH, COL[p.col2], true, 1.2); }
+      line(g, tr, p.key, sx, sy, COL[p.col], false, 1.8);
+      if (p.key2) line(g, tr, p.key2, sx, v => y0 + PH - v / p.max2 * PH, COL[p.col2], false, 1.4);
+      if (tr.length) { const lp = tr[tr.length - 1]; g.fillStyle = COL[p.col]; g.beginPath(); g.arc(sx(lp.t), sy(lp[p.key]), 3, 0, 7); g.fill(); }
+      g.strokeStyle = COL.line2; g.strokeRect(L + .5, y0 + .5, pw, PH);
+    });
+    const yb = top + keys.length * (PH + GAP) - GAP;
+    g.fillStyle = COL.dim; g.textAlign = 'center';
+    const stepT = tMax > 400 ? 60 : 30;
+    for (let t = 0; t <= tMax; t += stepT) g.fillText(mmss(t), sx(t), yb + 13);
+    if (hoverX !== null && hoverX > L && hoverX < L + pw && tr.length) {
+      const t = (hoverX - L) / pw * tMax;
+      let best = tr[0]; for (const p of tr) if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+      g.strokeStyle = COL.fg; g.globalAlpha = .6; g.beginPath(); g.moveTo(sx(best.t) + .5, top); g.lineTo(sx(best.t) + .5, yb); g.stroke(); g.globalAlpha = 1;
+      $('grCursor').textContent = mmss(best.t) + ' · ' + fmt(best.T, 0) + ' °C · ' + fmt(best.P, 0) + ' kW · ' + fmt(best.E, 1) + ' kWh · ' + fmt(best.rpm, 0) + ' rpm · ' + fmt(best.pr, 1) + ' bar · ' + fmt(best.pos, 0) + '%';
+    }
+    if (!tr.length) { g.fillStyle = COL.dim; g.textAlign = 'center'; g.font = '14px ' + C('--ui'); g.fillText('Sem dados ainda. Inicie uma batelada na tela Operação ou use Prever curvas na tela Receitas.', L + pw / 2, top + 50); }
+  }
+  function drawMini() {
+    if (view !== 'op') return;
+    const c = $('miniCv'); const { g, w, h } = setupCanvas(c, 150);
+    const tr = S.trend, L = 34, Rm = 40, T0 = 8, B = 20, pw = w - L - Rm, ph = h - T0 - B;
+    const tEnd = Math.max(120, tr.length ? tr[tr.length - 1].t : 0), tMax = Math.ceil(tEnd / 30) * 30;
+    const sx = t => L + t / tMax * pw;
+    g.fillStyle = COL.inset; g.fillRect(L, T0, pw, ph);
+    g.font = '10px ' + C('--num'); g.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) { const y = T0 + ph - ph * i / 4; g.strokeStyle = COL.line; g.beginPath(); g.moveTo(L, y + .5); g.lineTo(L + pw, y + .5); g.stroke();
+      g.fillStyle = COL.T; g.textAlign = 'right'; g.fillText(50 * i, L - 4, y); g.fillStyle = COL.P; g.textAlign = 'left'; g.fillText(500 * i, L + pw + 4, y); }
+    g.fillStyle = COL.dim; g.textAlign = 'center'; for (let t = 0; t <= tMax; t += tMax > 300 ? 60 : 30) g.fillText(mmss(t), sx(t), h - 8);
+    S.events.filter(e => e.type === 'step').forEach(e => { g.strokeStyle = COL.line2; g.beginPath(); g.moveTo(sx(e.t) + .5, T0); g.lineTo(sx(e.t) + .5, T0 + ph); g.stroke(); });
+    line(g, tr, 'P', sx, v => T0 + ph - v / 2000 * ph, COL.P, false, 1.4);
+    line(g, tr, 'T', sx, v => T0 + ph - v / 200 * ph, COL.T, false, 1.8);
+  }
+
+  
+
+  // ---------- Tela de operação (réplica) ----------
+  function fillRecSelect() {
+    $('progRec').innerHTML = recipes.map(r => '<option value="' + esc(r.id) + '">' + esc(r.compound) + '</option>').join('');
+  }
+  function renderPlan() {
+    const cur = planCur();
+    const rows = plan.map((p, i) => {
+      const cls = p.done >= p.qty ? 'done' : (p === cur ? 'cur' : 'pend');
+      return '<tr class="' + cls + '"><td>' + esc(recById(p.recId).compound) + '</td><td class="n">' + (p === cur ? p.qty : (p.done >= p.qty ? p.done : p.qty)) + '</td><td style="width:24px"><button class="x" type="button" data-rm="' + i + '" aria-label="Remover">✕</button></td></tr>';
+    }).join('');
+    $('progTbl').innerHTML = '<tr><th>Composto</th><th>BATCH</th><th></th></tr>' + (rows || '<tr><td colspan="3" style="font-size:13px;color:#666;font-weight:400">Nada programado.</td></tr>');
+    const R = cur ? recById(cur.recId) : null;
+    $('hbComp').textContent = R ? R.compound : '—';
+    $('hbBatch').textContent = cur ? Math.min(cur.done + (S.batchActive ? 1 : 0), cur.qty) + '/' + cur.qty : '0/0';
+  }
+  $('progTbl').addEventListener('click', e => {
+    const b = e.target.closest('[data-rm]'); if (!b) return;
+    const p = plan[+b.dataset.rm];
+    if (p === planCur() && S.seq && (S.seq.running || S.seq.wait > 0)) { $('autoMsg').textContent = 'Este composto está em produção. Pare o ciclo antes de removê-lo.'; return; }
+    plan.splice(+b.dataset.rm, 1); renderPlan(); renderMatrix(true);
+  });
+  $('progAdd').onclick = () => { const q = Math.max(1, Math.round(+$('progQty').value || 1)); plan.push({ recId: $('progRec').value, qty: q, done: 0 }); renderPlan(); renderMatrix(true); };
+  $('progClear').onclick = () => { plan = plan.filter(p => p.done < p.qty); renderPlan(); };
+
+  const MXROWS = [
+    ['F.W UP', st => st.fw === 'up'], ['F.W MIDDLE', st => st.fw === 'middle'], ['F.W DOWN', st => st.fw === 'down'], ['F.W PRESS', st => st.fw === 'press'],
+    ['Air blow', st => st.airBlow], ['Carbono', st => st.carbon], ['Óleo', st => st.oil],
+  ];
+  let mxKey = '';
+  function renderMatrix(force) {
+    const q = S.seq, running = q && q.running;
+    const R = running ? q.R : activeRecipe();
+    const steps = activeSteps(R), ncol = Math.max(8, steps.length);
+    const curI = running && q.i < steps.length ? q.i : -99;
+    const key = R.id + JSON.stringify(steps) + curI + ncol;
+    if (force || key !== mxKey) {
+      mxKey = key;
+      const cls = (j) => (j === curI ? ' cur' : '') + (running && j < curI ? ' done' : '') + ((running && curI >= steps.length && j < steps.length) ? ' done' : '');
+      let h = '<tr><th class="rl">Bloco - 1</th>';
+      for (let j = 0; j < ncol; j++) h += '<th class="' + cls(j) + '">' + (j + 1) + '</th>';
+      h += '</tr>';
+      MXROWS.forEach(([lab, fn]) => {
+        h += '<tr><th class="rl">' + lab + '</th>';
+        for (let j = 0; j < ncol; j++) { const st = steps[j]; h += '<td class="' + (st && fn(st) ? 'on' : '') + cls(j) + '">' + (st && fn(st) ? '1' : '') + '</td>'; }
+        h += '</tr>';
+      });
+      [['RPM', 'rpm'], ['Tempo (s)', 'time'], ['Temperatura', 'temp']].forEach(([lab, k]) => {
+        h += '<tr><th class="rl">' + lab + '</th>';
+        for (let j = 0; j < ncol; j++) { const st = steps[j]; h += '<td class="v' + cls(j) + '">' + (st && +st[k] ? st[k] : '') + '</td>'; }
+        h += '</tr>';
+      });
+      h += '<tr class="prog"><th class="rl" style="font-size:11px">Andamento</th>';
+      for (let j = 0; j < ncol; j++) h += '<td data-mp="' + j + '"></td>';
+      h += '</tr>';
+      $('mxTbl').innerHTML = h;
+    }
+    if (running && curI >= 0 && curI < steps.length) {
+      const c = $('mxTbl').querySelector('[data-mp="' + curI + '"]');
+      if (c) c.textContent = q.waitOp ? 'aguarda' : (q.hold ? 'pausa' : Math.floor(q.st) + ' s');
+    }
+  }
+  function updateReplica() {
+    const R = evalRecipe(), q = S.seq;
+    $('opClock').textContent = clockAt(S.t).toLocaleDateString('pt-BR') + ' ' + nowStr();
+    $('hfC').textContent = fmt(S.cScale || 0, 1) + ' kg';
+    $('hfO').textContent = fmt(S.oScale || 0, 1) + ' kg';
+    $('hfT').textContent = msShort(S.batchActive ? S.bt : 0);
+    $('hfPI').textContent = fmt(S.batchActive ? S.E : 0, 1) + ' kWh';
+    $('hfG').textContent = 'Máx ' + R.guardMax + ' · Mín ' + R.guardMin;
+    $('hfTemp').textContent = fmt(S.Tm, 0) + ' °C';
+    const box = $('hbBox');
+    box.classList.toggle('wait', !!(q && q.running && (q.waitOp || q.hold)));
+    renderPlan();
+  }
+  ['opName', 'opGrp', 'opTurn'].forEach(id => { try { const v = localStorage.getItem('no1mixer.' + id); if (v !== null) $(id).value = v; } catch (e) {}
+    $(id).addEventListener('change', () => { try { localStorage.setItem('no1mixer.' + id, $(id).value); } catch (e) {} }); });
+
+  // ---------- Ficha Mixing Process (editor de receita) ----------
+  const ED = () => recById(editId);
+  const TIPOS = { polimero: 'Polímero', mb: 'Masterbatch', quimicos: 'Químicos', curativos: 'Curativos', oleo: 'Óleo', negro: 'Negro de fumo' };
+  const getP = (o, path) => path.split('.').reduce((a, k) => a == null ? a : a[k], o);
+  const setP = (o, path, v) => { const ks = path.split('.'); const last = ks.pop(); const t = ks.reduce((a, k) => a[k], o); t[last] = v; };
+  const inp = (path, opt = {}) => {
+    const v = getP(ED(), path);
+    return '<input data-f="' + path + '"' + (opt.num ? ' type="number" step="any" data-num="1"' : '') + ' value="' + esc(v === 0 && opt.blank0 ? '' : v) + '"' + (opt.style ? ' style="' + opt.style + '"' : '') + '>';
+  };
+  function renderRecipeEditor() {
+    $('rList').innerHTML = recipes.map(r => {
+      const inPlan = plan.some(p => p.recId === r.id && p.done < p.qty);
+      return '<button class="ritem" type="button" data-id="' + esc(r.id) + '" aria-current="' + (r.id === editId) + '"><b>' + esc(r.compound) + '</b><span>' + activeSteps(r).length + ' passos · ' + fmt(r.ingredients.reduce((a, x) => a + (+x.kg || 0), 0) + r.co.reduce((a, x) => a + (x.type ? +x.kg || 0 : 0), 0), 1) + ' kg' + (inPlan ? ' · <span class="act">programado</span>' : '') + '</span></button>';
+    }).join('');
+    const R = ED();
+    const today = new Date().toLocaleDateString('pt-BR');
+    let h = '<div class="title"><div class="mixer">No. 1 &nbsp;MIXER</div><h3>Mixing Process</h3><table><tr><th>Printed Date</th></tr><tr><td style="text-align:center">' + today + '</td></tr></table></div>';
+    h += '<table style="width:100%"><tr><td rowspan="2" style="width:26%"><div style="font-weight:700;font-style:italic">COMPOUND No.</div><div class="cmp">' + inp('compound') + '</div></td>' +
+      '<th>Class</th><td>' + inp('klass') + '</td><th>Mix div</th><td>' + inp('mixDiv') + '</td><th>Number of slitter</th><td>' + inp('slitter', { num: 1 }) + '</td><th>Limit (day)</th><td>' + inp('limitDay', { num: 1 }) + '</td></tr>' +
+      '<tr><th>HQ No</th><td>' + inp('hqNo') + '</td><th>WT No</th><td>' + inp('wtNo') + '</td><th>Thickness (mm)</th><td>' + inp('thickness', { num: 1 }) + '</td><td colspan="2"></td></tr></table>';
+    h += '<div class="grid-a"><table style="width:100%"><tr><th></th><th>Code</th><th>Ingredient name</th><th>Tipo</th><th>Weight (kg)</th><th>Tolerance (kg)</th></tr>';
+    R.ingredients.forEach((x, i) => {
+      h += '<tr><td style="text-align:center">' + (i + 1) + '</td><td>' + inp('ingredients.' + i + '.code') + '</td><td>' + inp('ingredients.' + i + '.name', { style: 'text-align:left' }) + '</td><td class="wsel"><select data-f="ingredients.' + i + '.tipo">' +
+        Object.keys(TIPOS).filter(k => k !== 'negro' && k !== 'oleo').map(k => '<option value="' + k + '"' + (x.tipo === k ? ' selected' : '') + '>' + TIPOS[k] + '</option>').join('') + '</select></td><td>' + inp('ingredients.' + i + '.kg', { num: 1, blank0: 1 }) + '</td><td>' + inp('ingredients.' + i + '.tol', { num: 1, blank0: 1 }) + '</td></tr>';
+    });
+    h += '</table><table style="width:100%"><tr><th>Discard</th><th>Approve</th><th>Check</th><th>Make</th></tr><tr><td style="height:46px"></td><td>' + inp('approve') + '</td><td>' + inp('check') + '</td><td>' + inp('make') + '</td></tr></table></div>';
+    // matriz
+    h += '<div class="grid-a"><table class="mx" style="width:100%"><tr><th class="rl"></th>';
+    for (let j = 0; j < 12; j++) h += '<th>' + (j + 1) + '</th>';
+    h += '</tr>';
+    [['F.W UP', 'fw', 'up'], ['F.W MIDDLE', 'fw', 'middle'], ['F.W DOWN', 'fw', 'down'], ['F.W PRESS', 'fw', 'press'], ['AIR BLOW', 'airBlow'], ['AIR CHARGE', 'airCharge'], ['HOPPER', 'hopper'], ['CARBON', 'carbon'], ['OIL', 'oil']].forEach(([lab, k, v]) => {
+      h += '<tr><th class="rl">' + lab + '</th>';
+      for (let j = 0; j < 12; j++) { const st = R.steps[j]; const on = v ? st.fw === v : !!st[k]; h += '<td class="flag' + (on ? ' on' : '') + '" data-flag="' + j + ':' + k + ':' + (v || '') + '">' + (on ? '1' : '') + '</td>'; }
+      h += '</tr>';
+    });
+    [['RPM', 'rpm'], ['TIME', 'time'], ['TEMPERATURE', 'temp'], ['TOTAL PI', 'pi'], ['TOTAL ROTATION', 'rot']].forEach(([lab, k]) => {
+      h += '<tr><th class="rl">' + lab + '</th>';
+      for (let j = 0; j < 12; j++) h += '<td>' + inp('steps.' + j + '.' + k, { num: 1, blank0: 1 }) + '</td>';
+      h += '</tr>';
+    });
+    h += '<tr><th class="rl">CONDITION</th>';
+    for (let j = 0; j < 12; j++) { const c = R.steps[j].cond || 'A'; h += '<td><select data-f="steps.' + j + '.cond"><option' + (c === 'A' ? ' selected' : '') + '>A</option><option' + (c === 'B' ? ' selected' : '') + '>B</option></select></td>'; }
+    h += '</tr></table><div style="display:flex;flex-direction:column;gap:10px">';
+    h += '<table style="width:100%"><tr><th>Type</th><th>No.</th><th>Kind</th><th>Weight (kg)</th><th>Charging</th></tr>';
+    R.co.forEach((x, i) => {
+      h += '<tr><td class="tsel"><select data-f="co.' + i + '.type"><option value=""' + (!x.type ? ' selected' : '') + '></option><option' + (x.type === 'CARBON' ? ' selected' : '') + '>CARBON</option><option' + (x.type === 'OIL' ? ' selected' : '') + '>OIL</option></select></td><td>' + inp('co.' + i + '.no') + '</td><td>' + inp('co.' + i + '.kind') + '</td><td>' + inp('co.' + i + '.kg', { num: 1, blank0: 1 }) + '</td><td>' + inp('co.' + i + '.step', { num: 1, blank0: 1 }) + '</td></tr>';
+    });
+    h += '</table><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start">' +
+      '<table class="kv" style="width:100%"><tr><td>Jog weight (kg)</td><td>' + inp('jog', { num: 1 }) + '</td></tr><tr><td>JOG weight2</td><td>' + inp('jog2') + '</td></tr><tr><td>Cut weight (kg)</td><td>' + inp('cut') + '</td></tr></table>' +
+      '<table class="kv" style="width:100%"><tr><td>D/D Time (sec)</td><td>' + inp('ddTime', { num: 1 }) + '</td></tr><tr><td>D/D Rotor (rpm)</td><td>' + inp('ddRpm', { num: 1 }) + '</td></tr></table>' +
+      '<table class="kv" style="width:100%"><tr><th colspan="2">Tcu Mixer Temperature (°C)</th></tr><tr><td>Casing</td><td>' + inp('tcu.casing', { num: 1 }) + '</td></tr><tr><td>Rotor</td><td>' + inp('tcu.rotor', { num: 1 }) + '</td></tr><tr><td>Drop door</td><td>' + inp('tcu.door', { num: 1 }) + '</td></tr></table>' +
+      '<table class="kv" style="width:100%"><tr><th colspan="2">Temperature Guard (°C)</th></tr><tr><td>Max</td><td>' + inp('guardMax', { num: 1 }) + '</td></tr><tr><td>Min</td><td>' + inp('guardMin', { num: 1 }) + '</td></tr></table>' +
+      '</div></div></div>';
+    $('sheet').innerHTML = h;
+    renderCalc();
+  }
+  $('rList').onclick = e => { const b = e.target.closest('[data-id]'); if (b) { editId = b.dataset.id; renderRecipeEditor(); } };
+  function changed(rerender) { const R = ED(); normRecipe(R); save(); predCache = {}; renderCalc(); if (rerender) { const sc = $('sheet').parentElement.scrollLeft; renderRecipeEditor(); $('sheet').parentElement.scrollLeft = sc; } fillRecSelect(); renderPlan(); if (!(S.seq && S.seq.running)) renderMatrix(true); }
+  $('sheet').addEventListener('input', e => {
+    const t = e.target; if (!t.dataset.f || t.tagName === 'SELECT') return;
+    setP(ED(), t.dataset.f, t.dataset.num ? (t.value === '' ? 0 : +t.value) : t.value);
+    changed(false);
+    if (t.dataset.f === 'compound') { const b = $('rList').querySelector('[aria-current="true"] b'); if (b) b.textContent = t.value; }
+  });
+  $('sheet').addEventListener('change', e => { const t = e.target; if (t.tagName !== 'SELECT') return; setP(ED(), t.dataset.f, t.value); changed(false); });
+  $('sheet').addEventListener('click', e => {
+    const c = e.target.closest('[data-flag]'); if (!c) return;
+    const [j, k, v] = c.dataset.flag.split(':'); const st = ED().steps[+j];
+    if (v) st.fw = st.fw === v ? '' : v; else st[k] = !st[k];
+    changed(true);
+  });
+  function renderCalc() {
+    const R = ED(); let kg = 0, vol = 0; const warn = [];
+    R.ingredients.forEach(x => { if (+x.kg > 0) { kg += +x.kg; vol += +x.kg / ING[x.tipo].d; } });
+    R.co.forEach(x => { if (x.type && +x.kg > 0) { kg += +x.kg; vol += +x.kg / (x.type === 'CARBON' ? ING.negro.d : ING.oleo.d); } });
+    const ff = vol / MACH.vol, steps = activeSteps(R);
+    if (ff < 0.65 || ff > 0.8) warn.push('fator de enchimento fora da janela 0,65 a 0,80');
+    if (!steps.length) warn.push('nenhum passo preenchido');
+    steps.forEach((st, i) => { if (!st.fw) warn.push('passo ' + (i + 1) + ' sem posição do F.W'); if (!(+st.time || +st.temp || +st.pi || +st.rot)) warn.push('passo ' + (i + 1) + ' sem critério de fim'); });
+    R.co.forEach((x, i) => { if (x.type && +x.kg > 0) { const s = steps[+x.step - 1]; if (!s) warn.push(x.type + ' ' + x.kind + ': passo de carga ' + x.step + ' não existe'); else if (x.type === 'CARBON' && !s.carbon) warn.push('carbono ' + x.kind + ' no passo ' + x.step + ', mas a linha CARBON desse passo está vazia'); else if (x.type === 'OIL' && !s.oil) warn.push('óleo ' + x.kind + ' no passo ' + x.step + ', mas a linha OIL desse passo está vazia'); } });
+    if (+R.guardMin >= +R.guardMax) warn.push('guarda de temperatura inválida');
+    if (R.tipo === 'final' && R.guardMax > 120) warn.push('receita com curativos e guarda máxima acima de 120 °C');
+    $('rCalc').innerHTML = '<span>Massa total <b>' + fmt(kg, 1) + ' kg</b></span><span>Volume <b>' + fmt(vol, 0) + ' L</b></span>' +
+      '<span>Fator de enchimento <b class="' + (ff < 0.65 || ff > 0.8 ? 'bad' : '') + '">' + fmt(ff, 2) + '</b> (câmara ' + MACH.vol + ' L)</span><span>Densidade <b>' + fmt(vol ? kg / vol : 0, 3) + '</b></span><span>Passos <b>' + steps.length + '</b></span>' +
+      (warn.length ? '<span class="bad">Atenção: ' + warn.join('; ') + '</span>' : '');
+  }
+  const newId = () => 'r' + Date.now().toString(36);
+  $('rNew').onclick = () => { const r = normRecipe({ id: newId(), compound: 'NOVO', klass: '', mixDiv: 'A', hqNo: '', wtNo: '', slitter: 4, thickness: 8, limitDay: 30, approve: '', check: '', make: '',
+    ingredients: [{ code: '', name: 'Masterbatch', tipo: 'mb', kg: 300, tol: 1 }], co: null, carbon: [], oil: [], steps: mkSteps([{ fw: 'down', rpm: 30, time: 60, temp: 140 }]),
+    jog: 200, jog2: '', cut: '', ddTime: 10, ddRpm: 25, tcu: { casing: 35, rotor: 40, door: 45 }, guardMax: 170, guardMin: 130 });
+    recipes.push(r); editId = r.id; save(); fillRecSelect(); renderRecipeEditor(); };
+  $('rDup').onclick = () => { const r = clone(ED()); r.id = newId(); r.compound += '-COPIA'; normRecipe(r); recipes.push(r); editId = r.id; save(); fillRecSelect(); renderRecipeEditor(); };
+  $('rDel').onclick = () => {
+    const b = $('rDel');
+    if (recipes.length < 2) { $('rMsg').textContent = 'Mantenha pelo menos uma receita.'; return; }
+    if (plan.some(p => p.recId === editId && p.done < p.qty)) { $('rMsg').textContent = 'Este composto está na programação. Remova-o da programação primeiro.'; return; }
+    if (b.dataset.confirm !== editId) { b.dataset.confirm = editId; b.textContent = 'Confirmar exclusão'; setTimeout(() => { b.textContent = 'Excluir'; b.dataset.confirm = ''; }, 3000); return; }
+    b.textContent = 'Excluir'; b.dataset.confirm = '';
+    recipes = recipes.filter(r => r.id !== editId); plan = plan.filter(p => recipes.some(r => r.id === p.recId)); editId = recipes[0].id; save(); fillRecSelect(); renderRecipeEditor(); renderPlan(); renderMatrix(true);
+  };
+  $('rReset').onclick = () => {
+    const b = $('rReset');
+    if (!b.dataset.confirm) { b.dataset.confirm = '1'; b.textContent = 'Confirmar: apaga alterações'; setTimeout(() => { b.textContent = 'Restaurar exemplos'; b.dataset.confirm = ''; }, 3000); return; }
+    b.dataset.confirm = ''; b.textContent = 'Restaurar exemplos';
+    recipes = clone(DEFAULT_RECIPES); recipes.forEach(normRecipe); plan = plan.filter(p => recipes.some(r => r.id === p.recId)); if (!plan.length) plan = [{ recId: recipes[0].id, qty: 53, done: 0 }];
+    editId = recipes[0].id; save(); fillRecSelect(); renderRecipeEditor(); renderPlan(); renderMatrix(true);
+  };
+  $('rToPlan').onclick = () => { plan.push({ recId: editId, qty: 10, done: 0 }); renderPlan(); renderMatrix(true); toast(ED().compound + ' programado com 10 batches na tela de operação.'); };
+  let previewData = null;
+  $('rPredict').onclick = () => {
+    const R = runCopy(ED());
+    const r = predict(clone(R));
+    if (!r) { $('rMsg').textContent = 'A simulação não chegou à descarga. Confira os critérios de fim dos passos.'; return; }
+    predCache[JSON.stringify(R)] = { trend: r.trend, events: r.events };
+    previewData = { trend: r.trend, events: r.events, R };
+    showSel = 'pred'; setView('gr');
+    const ev = evaluate(r, R);
+    toast('Previsão ' + R.compound + ': descarga em ' + msShort(r.tempo) + ' a ' + fmt(r.Tdrop, 0) + ' °C, ' + fmt(r.E, 1) + ' kWh (' + fmt(r.Ekg, 3) + ' kWh/kg). ' + ev.label + (ev.msgs.length ? ': ' + ev.msgs[0] : '') + '. Câmara fria, primeiro batch do turno.');
+  };
+  $('rExport').onclick = () => { const r = clone(ED()); delete r.id; ['carbon', 'oil', 'nome', 'tMax', 'janMin', 'janMax', 'tempoMax', 'tipo'].forEach(k => delete r[k]); $('rJson').value = JSON.stringify(r, null, 2); $('rMsg').textContent = 'Receita exportada no campo abaixo.'; };
+  $('rCopy').onclick = () => {
+    const t = $('rJson'); if (!t.value) $('rExport').click();
+    const done = () => $('rMsg').textContent = 'Copiado.';
+    try { navigator.clipboard.writeText(t.value).then(done, () => { t.select(); $('rMsg').textContent = 'Texto selecionado: use Ctrl+C.'; }); } catch (e) { t.select(); $('rMsg').textContent = 'Texto selecionado: use Ctrl+C.'; }
+  };
+  $('rImport').onclick = () => {
+    try {
+      const r = JSON.parse($('rJson').value);
+      if (!r || !Array.isArray(r.steps) || !r.compound) throw new Error('a receita precisa ter "compound" e "steps".');
+      r.steps = r.steps.map(x => Object.assign(EMPTY_STEP(), x)).slice(0, 12);
+      (r.ingredients || []).forEach(x => { if (!ING[x.tipo]) x.tipo = 'polimero'; });
+      r.id = newId(); ['guardMax', 'guardMin', 'ddTime', 'ddRpm'].forEach(k => r[k] = +r[k] || ({ guardMax: 170, guardMin: 130, ddTime: 10, ddRpm: 25 })[k]);
+      normRecipe(r); recipes.push(r); editId = r.id; save(); fillRecSelect(); renderRecipeEditor(); $('rMsg').textContent = 'Receita importada.';
+    } catch (e) { $('rMsg').textContent = 'Não foi possível importar: ' + e.message; }
+  };
+
+  // ---------- Gráficos (réplica do supervisório) ----------
+  const PENS = [
+    { k: 'T', n: 'Temperatura borracha', c: '#d9483b', f: v => v, d: 0, u: '' },
+    { k: 'P', n: 'Eletricidade', c: '#2f45d8', f: v => v / 10, d: 0, u: '' },
+    { k: 'pos', n: 'Posição Ram', c: '#4fb84a', f: v => 145 + 0.5 * (100 - v), d: 0, u: '', val: v => 100 - v },
+    { k: 'rpm', n: 'Rotação do mixer', c: '#e5a73a', f: v => v * 2.5, d: 0, u: '' },
+    { k: 'cw', n: 'Peso do carbono', c: '#7b3fb0', f: v => v * 1.5, d: 1, u: '' },
+    { k: 'o1', n: 'Peso óleo1', c: '#3aa7c9', f: v => v * 1.5, d: 1, u: '' },
+    { k: 'o2', n: 'Peso óleo2', c: '#c94fc0', f: v => v * 1.5, d: 1, u: '' },
+  ];
+  const penOn = {}; PENS.forEach(p => penOn[p.k] = true);
+  $('trLeg').innerHTML = PENS.map(p => '<label><input type="checkbox" data-pen="' + p.k + '" checked><i style="background:' + p.c + '"></i><span style="color:' + p.c + '">' + p.n + '</span></label>').join('');
+  $('trLeg').addEventListener('change', e => { const k = e.target.dataset.pen; if (k) { penOn[k] = e.target.checked; drawTR(); } });
+  let trEnd = null, trCursor = null, trFollow = true;
+  const trWin = () => clamp(+$('trWin').value || 450, 60, 7200);
+  $('trWin').onchange = () => drawTR();
+  $('trFollow').onchange = e => { trFollow = e.target.checked; if (trFollow) trEnd = null; $('fkMove').classList.toggle('on', trFollow); drawTR(); };
+  function setFollow(v) { trFollow = v; $('trFollow').checked = v; $('fkMove').classList.toggle('on', v); }
+  $('trScroll').oninput = e => {
+    const lg = S.log; if (!lg.length) return;
+    const t0 = lg[0].t, t1 = S.t, w = trWin();
+    setFollow(+e.target.value >= 1000);
+    trEnd = trFollow ? null : t0 + w + (Math.max(0, t1 - t0 - w)) * (+e.target.value / 1000);
+    drawTR();
+  };
+  const sampleAt = (t) => { const lg = S.log; if (!lg.length) return null; let lo = 0, hi = lg.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (lg[m].t < t) lo = m + 1; else hi = m; } return lg[lo]; };
+  $('fkPrev').onclick = () => { const w = winRange(); trCursor = Math.max(w[0], (trCursor ?? w[1]) - 1); setFollow(false); trEnd = w[1]; drawTR(); };
+  $('fkNext').onclick = () => { const w = winRange(); trCursor = Math.min(w[1], (trCursor ?? w[0]) + 1); setFollow(false); trEnd = w[1]; drawTR(); };
+  function batchAtCenter() { const [a, b] = winRange(), c = trCursor ?? (a + b) / 2; let best = null; batches.forEach(x => { if (x.t0 <= c) best = x; }); return best; }
+  function goBatch(x) { if (!x) return; setFollow(false); const t1 = x.t1 ?? S.t; const w = trWin(); trEnd = Math.min(S.t, x.t0 + Math.max(w * 0.8, t1 - x.t0 + 20)); trCursor = x.t0 + Math.min(60, (t1 - x.t0) / 2); $('trSelB').value = x.no; drawTR(); }
+  $('fkBPrev').onclick = () => { const cur = batchAtCenter(); const i = cur ? batches.indexOf(cur) : batches.length; goBatch(batches[Math.max(0, i - 1)]); };
+  $('fkBNext').onclick = () => { const cur = batchAtCenter(); const i = cur ? batches.indexOf(cur) : -1; if (i + 1 < batches.length) goBatch(batches[i + 1]); else { setFollow(true); trEnd = null; drawTR(); } };
+  $('fkMove').onclick = () => { setFollow(!trFollow); if (trFollow) trEnd = null; drawTR(); };
+  $('fkSel').onclick = () => { $('trSelB').focus(); try { $('trSelB').showPicker(); } catch (e) {} };
+  $('trSelB').onchange = e => goBatch(batches.find(x => String(x.no) === e.target.value));
+  function fillBatchSel() {
+    const cur = $('trSelB').value;
+    $('trSelB').innerHTML = '<option value="">—</option>' + batches.slice().reverse().map(x => '<option value="' + x.no + '">' + x.no + ' · ' + esc(x.comp) + ' · ' + hms(x.t0) + '</option>').join('');
+    $('trSelB').value = cur;
+  }
+  function winRange() { const w = trWin(); const end = trFollow || trEnd === null ? Math.max(S.t, w) : trEnd; return [end - w, end]; }
+  const trCv = $('trCv');
+  trCv.addEventListener('click', e => { const r = trCv.getBoundingClientRect(); const [a, b] = winRange(); const L = 48, pw = r.width - L - 12; const x = e.clientX - r.left; if (x < L) return; trCursor = a + (x - L) / pw * (b - a); setFollow(false); trEnd = b; drawTR(); });
+  function drawTR() {
+    if (view !== 'tr') return;
+    const H = Math.max(300, Math.min(560, Math.round((trCv.clientWidth || 800) * 0.5)));
+    const { g, w } = setupCanvas(trCv, H);
+    const L = 48, Rm = 12, T0 = 14, B = 30, pw = w - L - Rm, ph = H - T0 - B;
+    const [a, b] = winRange();
+    const sx = t => L + (t - a) / (b - a) * pw, sy = v => T0 + ph - clamp(v, -5, 205) / 200 * ph;
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, H);
+    g.font = '12px ' + C('--num'); g.textBaseline = 'middle';
+    g.strokeStyle = '#9aa0a6'; g.lineWidth = 1;
+    for (let v = 0; v <= 200; v += 50) { const y = sy(v); g.strokeStyle = v === 0 ? '#555' : '#9aa0a6'; g.beginPath(); g.moveTo(L, y + .5); g.lineTo(L + pw, y + .5); g.stroke(); g.fillStyle = '#4a5fa8'; g.textAlign = 'right'; g.fillText(String(v), L - 6, y); }
+    const step = (b - a) / 10;
+    g.textAlign = 'center';
+    for (let i = 0; i <= 10; i++) { const t = a + i * step, x = sx(t); g.strokeStyle = '#555'; g.beginPath(); g.moveTo(x + .5, T0); g.lineTo(x + .5, T0 + ph); g.stroke(); g.fillStyle = '#4a5fa8'; if (t >= 0) g.fillText(hms(t), clamp(x, L + 28, L + pw - 28), H - 12); }
+    batches.forEach(x => { [x.t0, x.t1].forEach(t => { if (t === null || t < a || t > b) return; g.strokeStyle = '#e0302a'; g.beginPath(); g.moveTo(sx(t) + .5, T0); g.lineTo(sx(t) + .5, T0 + ph); g.stroke(); }); });
+    const lg = S.log; let i0 = 0; while (i0 < lg.length && lg[i0].t < a) i0++;
+    const pts = lg.slice(Math.max(0, i0 - 1)).filter(p => p.t <= b + 1);
+    PENS.forEach(p => {
+      if (!penOn[p.k] || !pts.length) return;
+      g.strokeStyle = p.c; g.lineWidth = p.k === 'P' ? 1.4 : 1.8; g.beginPath();
+      pts.forEach((q, i) => { const x = sx(q.t), y = sy(p.f(q[p.k] || 0) + (p.k === 'P' || p.k === 'T' ? Math.sin(q.t * 7.3) * 0.0 : 0)); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+      g.stroke();
+    });
+    g.strokeStyle = '#555'; g.strokeRect(L + .5, T0 + .5, pw, ph);
+    // cursor e informação do chart
+    const ct = trCursor !== null && trCursor >= a && trCursor <= b ? trCursor : (pts.length ? pts[pts.length - 1].t : null);
+    if (ct !== null && trCursor !== null && ct === trCursor) { g.strokeStyle = '#222'; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(sx(ct) + .5, T0); g.lineTo(sx(ct) + .5, T0 + ph); g.stroke(); g.setLineDash([]); }
+    const smp = ct !== null ? sampleAt(ct) : null;
+    $('trInfo').innerHTML = '<tr><th>ProcTime</th>' + PENS.map(p => '<th>' + p.n.replace('Temperatura borracha', 'Temperatura da borracha') + '</th>').join('') + '</tr><tr><td>' +
+      (smp ? clockAt(smp.t).toLocaleDateString('pt-BR') + ' ' + hms(smp.t) : '—') + '</td>' + PENS.map(p => '<td>' + (smp ? fmt(p.val ? p.val(smp[p.k] || 0) : (smp[p.k] || 0), p.d) : '') + '</td>').join('') + '</tr>';
+    const bx = (smp && smp.b) ? batches.find(x => x.no === smp.b) : batchAtCenter();
+    $('trComp').textContent = bx ? bx.comp : evalRecipe().nome;
+    $('trBatch').textContent = bx ? '[(' + bx.no + ' Batch ' + hms(bx.t0) + ' - ' + (bx.t1 !== null ? hms(bx.t1) : 'em andamento') + ')]' : '[( sem batch )]';
+    if (trFollow) $('trScroll').value = 1000;
+    if (!pts.length) { g.fillStyle = '#666'; g.textAlign = 'center'; g.font = '14px ' + C('--ui'); g.fillText('Sem registro ainda. As penas são gravadas continuamente desde a abertura do simulador.', L + pw / 2, T0 + 40); }
+  }
+
+  // ---------- Histórico ----------
+  function renderHistory() {
+    const rows = history.map(h => '<tr data-no="' + h.no + '" style="cursor:pointer"><td class="n">' + h.no + '</td><td>' + esc(h.rec) + '</td><td>' + (h.mode === 'auto' ? 'Auto' : 'Manual') + '</td>' +
+      '<td class="n">' + mmss(h.tempo) + '</td><td class="n">' + (h.Tdrop !== null ? fmt(h.Tdrop, 1) : '—') + '</td><td class="n">' + fmt(h.E, 1) + '</td><td class="n">' + fmt(h.Ekg, 3) + '</td>' +
+      '<td class="n">' + fmt(h.Ppk, 0) + '</td><td class="n">' + fmt(h.kg, 1) + '</td><td class="n">' + fmt(h.ff, 2) + '</td>' +
+      '<td><span class="grade ' + h.ev.cls + '">' + h.ev.label + '</span>' + (h.ev.msgs.length ? '<div class="note" style="font-size:12px">' + h.ev.msgs.map(esc).join('<br>') + '</div>' : '') + '</td></tr>').join('');
+    $('hiTbl').innerHTML = '<tr><th>Nº</th><th>Composto</th><th>Modo</th><th>Tempo</th><th>T descarga °C</th><th>PI kWh</th><th>kWh/kg</th><th>Pico kW</th><th>Peso kg</th><th>Enchim.</th><th>Avaliação</th></tr>' +
+      (rows || '<tr><td colspan="11" class="note">Nenhum batch concluído ainda.</td></tr>');
+  }
+  $('hiTbl').addEventListener('click', e => { const tr = e.target.closest('[data-no]'); if (!tr) return; showSel = tr.dataset.no; setView('gr'); $('grShow').value = showSel; drawTrends(); });
+  // ---------- Painel de comando (botoeira) ----------
+  const sel = { mixing: 'auto', borracha: 'auto', carbono: 'auto', ram: 'auto', porta: 'auto', jato: 'auto', carbOn: 'off', ddKey: 'auto' };
+  let rampDir = 0;
+  let ramHold = false, lampTest = false, ticketErr = false, olT = 0, carbDosed = 0;
+  S.scale = [];
+  const BL = '#3d7bff', GR = '#38e05a', WH = '#e8ecef', OR = '#ff6a1f', RD = '#e0202a', YL = '#f1e4b0', BK = '#2a2a2a';
+  const SW = {
+    mixing: { plate: 'Mixing', pos: [['man', 'Manual'], ['auto', 'Automático']] },
+    borracha: { plate: 'Alimentação de borracha', pos: [['man', 'Manual'], ['auto', 'Automático']] },
+    carbono: { plate: 'Alimentação de carbono', pos: [['man', 'Manual'], ['auto', 'Automático']] },
+    ram: { plate: 'Ram', pos: [['up', 'Elevar'], ['auto', 'Automático'], ['down', 'Abaixar']] },
+    porta: { plate: 'Porta de alimentação', pos: [['open', 'Aberto'], ['auto', 'Automático'], ['closed', 'Fechado']] },
+    jato: { plate: 'Jato de ar', pos: [['on', 'Ligado'], ['off', 'Desligado'], ['auto', 'Automático']] },
+    carbOn: { plate: 'Alimentação de carbono', pos: [['off', 'Desligado'], ['on', 'Ligado']] },
+    ddKey: { plate: 'Drop door', pos: [['open', 'Aberto'], ['auto', 'Automático'], ['closed', 'Fechado']], key: true },
+  };
+  const BTN = {
+    prep: ['Preparação', BL], forc: ['Enviar forçado passo acima', GR], ramInt: ['Ram parada intermediária', WH], ticket: ['Erro ticket resetar', BL],
+    seg: ['Segurança reset', WH], mill: ['Timer do moinho reset', BL], peso: ['Peso confirmar', WH],
+    mpOn: ['Motor principal operar', GR], maOn: ['Motor auxiliar operar', GR], tcOn: ['Controle de temp. operar', GR], autoOn: ['Mixing operação auto', GR],
+    tmpStop: ['Mixing parada temporária', WH], fault: ['Resetar falha', BL], rubOk: ['Alimentação de borracha concluída', OR],
+    mpOff: ['Motor principal parar', RD], maOff: ['Motor auxiliar parar', RD], tcOff: ['Controle de temp. parar', RD], autoOff: ['Mixing parada auto', RD],
+    tmpReset: ['Parada temporária reset', YL], ddOpen: ['Drop door abrir', BK], ddClose: ['Drop door fechar', BL], rpmUp: ['Rotação aumentar', WH], rpmDn: ['Rotação diminuir', WH], lamp: ['Teste de lâmpadas', BK], alarm: ['Comunicação alarme', BK],
+  };
+  const LAYOUT = ['rpmbox', null, null, null, null, null, null, null,
+    'prep', 'forc', null, 'ramInt', 'ticket', 'seg', 'mill', 'peso',
+    'mpOn', 'maOn', 'tcOn', 'autoOn', 'tmpStop', 'fault', 'rubOk', 'rpmUp',
+    'mpOff', 'maOff', 'tcOff', 'autoOff', 'tmpReset', 'lamp', 'alarm', 'rpmDn',
+    'sep', 'sw:mixing', 'sw:borracha', null, 'sw:carbono', null, null, null, null,
+    'sw:ram', 'sw:porta', 'sw:jato', 'sw:carbOn', null, null, null, null];
+  const ANG = { 2: [-48, 48], 3: [-55, 0, 55] };
+  const LPOS = { 2: [['8px', '18px'], ['auto', '18px']], 3: [['6px', '30px'], ['mid', '8px'], ['auto', '30px']] };
+  function selHTML(k) {
+    const c = SW[k], n = c.pos.length;
+    const labels = c.pos.map(([v, l], i) => {
+      const [x, y] = LPOS[n][i];
+      const st = x === 'mid' ? 'left:50%;transform:translateX(-50%);top:' + y : (x === 'auto' ? 'right:8px;top:' + y : 'left:' + x + ';top:' + y);
+      return '<button type="button" class="pl" data-sw="' + k + '" data-v="' + v + '" style="' + st + '">' + l + '</button>';
+    }).join('');
+    return '<div class="plate">' + c.plate + '</div><div class="selsw' + (c.key ? ' key' : '') + '">' + labels + '<span class="ring"></span><button type="button" class="knob" data-knob="' + k + '" aria-label="' + c.plate + '"></button></div>';
+  }
+  $('cpGrid').innerHTML = LAYOUT.map(x => {
+    if (x === null) return '<div></div>';
+    if (x === 'sep') return '<div class="cp-sep"></div>';
+    if (x === 'rpmbox') return '<div class="cp-cell"><div class="plate">Rotação do motor</div>' + dialHTML() + '</div>';
+    if (x.startsWith('sw:')) return '<div class="cp-cell">' + selHTML(x.slice(3)) + '</div>';
+    return btnHTML(x);
+  }).join('');
+  function btnHTML(x) { const [l, c] = BTN[x]; return '<div class="cp-cell"><div class="plate">' + l + '</div><button type="button" class="pbtn" id="pb-' + x + '" data-pb="' + x + '" style="--c:' + c + '" aria-label="' + l + '"><span class="lens"></span></button></div>'; }
+  $('cpSide').innerHTML = '<div class="cp-box"><div class="cp-cell">' + selHTML('ddKey') + '</div></div>';
+  $('cpSide').addEventListener('click', e => {
+    const pl = e.target.closest('[data-sw]'); if (pl) { setSel(pl.dataset.sw, pl.dataset.v); return; }
+    const kn = e.target.closest('[data-knob]'); if (kn) { const ps = SW.ddKey.pos, i = ps.findIndex(p => p[0] === sel.ddKey); setSel('ddKey', ps[(i + 1) % ps.length][0]); return; }
+    const b = e.target.closest('[data-pb]'); if (b) press(b.dataset.pb);
+  });
+  const cpMsg = (t) => { $('cpMsg').textContent = t; };
+  function setSel(k, v) {
+    if (k === 'mixing') { setMode(v); v = mode; }
+    sel[k] = v;
+    if (k === 'borracha') S.feedManual.borracha = v === 'man';
+    if (k === 'carbono') S.feedManual.carbono = v === 'man';
+    if (k === 'carbOn') S.carbonOn = v === 'on';
+    if (k === 'ddKey') {
+      if (v === 'open' && (S.feedCmd || S.feed > 0.02)) { sel.ddKey = 'closed'; cpMsg('Intertravamento: feche a porta de alimentação antes de abrir a drop door.'); renderSel(); return; }
+      if (v === 'open' && massOf(S.m) > 0.5 && S.batchActive) markDrop(S);
+      cpMsg(v === 'open' ? 'Chave da drop door em ABERTO: porta aberta pelo operador.' : v === 'closed' ? 'Chave da drop door em FECHADO: porta fechada pelo operador.' : 'Chave da drop door em AUTOMÁTICO: a receita comanda a porta.');
+    }
+    renderSel();
+  }
+  function renderSel() {
+    sel.mixing = mode;
+    Object.keys(SW).forEach(k => {
+      const i = SW[k].pos.findIndex(p => p[0] === sel[k]);
+      const kn = document.querySelector('[data-knob="' + k + '"]');
+      kn.style.transform = 'rotate(' + ANG[SW[k].pos.length][i] + 'deg)';
+      document.querySelectorAll('[data-sw="' + k + '"]').forEach(b => b.classList.toggle('act', b.dataset.v === sel[k]));
+    });
+  }
+  $('cpGrid').addEventListener('click', e => {
+    const pl = e.target.closest('[data-sw]'); if (pl) { setSel(pl.dataset.sw, pl.dataset.v); return; }
+    const kn = e.target.closest('[data-knob]');
+    if (kn) { const k = kn.dataset.knob, ps = SW[k].pos, i = ps.findIndex(p => p[0] === sel[k]); setSel(k, ps[(i + 1) % ps.length][0]); return; }
+    const b = e.target.closest('[data-pb]'); if (b) press(b.dataset.pb);
+  });
+  ['pointerdown', 'pointerup', 'pointerleave'].forEach(ev => $('pb-lamp').addEventListener(ev, () => { lampTest = ev === 'pointerdown'; renderLamps(); }));
+
+  function readiness() {
+    const miss = [];
+    if (!S.aux) miss.push('motor auxiliar');
+    if (!S.tcu) miss.push('controle de temperatura');
+    if (!S.motor) miss.push('motor principal');
+    if (S.emerg) miss.push('reset de segurança');
+    if (S.fault) miss.push('resetar falha');
+    if (mode !== 'auto') miss.push('seletor Mixing em automático');
+    if (massOf(S.m) > 0.3 || S.batchActive) miss.push('câmara vazia');
+    return miss;
+  }
+  function motorOn() {
+    if (S.emerg) return cpMsg('Segurança: dê o reset de segurança antes de ligar o motor.');
+    if (S.fault) return cpMsg('Falha ativa: ' + S.fault + '. Pressione Resetar falha.');
+    if (!S.aux) return cpMsg('Intertravamento: ligue o motor auxiliar (lubrificação e hidráulica) antes do motor principal.');
+    if (mode === 'man' && manRef > 2) return cpMsg('Intertravamento: zere a referência de rotação antes de partir o motor principal.');
+    S.motor = true; S.rotors = true; cpMsg(mode === 'man' ? 'Motor principal em operação na rotação mínima. Aumente a rotação no potenciômetro ou no botão Rotação aumentar.' : 'Motor principal em operação.');
+  }
+  function press(k) {
+    const q = S.seq; cpMsg('');
+    switch (k) {
+      case 'prep': { const m = readiness(); cpMsg(m.length ? 'Preparação incompleta: ' + m.join(', ') + '.' : 'Máquina preparada. Pressione Mixing operação auto para iniciar o ciclo.'); break; }
+      case 'forc':
+        if (q && q.running && q.i < q.R._steps.length) { S.events.push({ t: S.bt, type: 'info', msg: 'Passo enviado à frente pelo operador' }); seqGotoUI(q.i + 1, 'enviado forçado'); cpMsg('Etapa avançada manualmente.'); }
+        else cpMsg('Só é possível avançar o passo com o ciclo automático em andamento.');
+        break;
+      case 'ramInt': ramHold = !ramHold; cpMsg(ramHold ? 'Pistão parado na posição intermediária.' : 'Pistão liberado.'); break;
+      case 'ticket': if (ticketErr) { ticketErr = false; clearA('TICKET'); ack('all'); cpMsg('Erro de ticket resetado. Confirme o peso e conclua a alimentação.'); } break;
+      case 'seg': if (S.emerg) $('estop').click(); else cpMsg('Nenhuma condição de segurança ativa.'); break;
+      case 'mill': S.pile = 0; cpMsg('Timer do moinho resetado: moinho livre para a próxima descarga.'); break;
+      case 'peso':
+        if (S.scale.length) { S.scale.forEach(x => S.hopper.push(x)); cpMsg('Peso confirmado: ' + S.scale.map(x => ING[x.ing].s + ' ' + fmt(x.kg, 1) + ' kg').join(', ') + ' enviado à tremonha.'); S.scale = []; }
+        else if (q && q.waitOp === 'borracha') { S.opWeighOk = true; cpMsg('Peso da borracha confirmado. Coloque na correia e pressione Alimentação de borracha concluída.'); }
+        else cpMsg('Nada aguardando confirmação de peso.');
+        break;
+      case 'mpOn': motorOn(); break;
+      case 'mpOff': S.motor = false; S.rotors = false; cpMsg('Motor principal parado.'); break;
+      case 'maOn': S.aux = true; break;
+      case 'maOff': S.aux = false; if (S.motor) { S.motor = false; cpMsg('Motor auxiliar desligado: motor principal desarmou por intertravamento.'); } break;
+      case 'tcOn': S.tcu = true; break;
+      case 'tcOff': S.tcu = false; cpMsg('Controle de temperatura parado: a câmara perde refrigeração.'); break;
+      case 'autoOn': $('bStart').click(); if ($('autoMsg').textContent) cpMsg($('autoMsg').textContent); break;
+      case 'autoOff':
+        if (q && (q.running || q.wait > 0)) { q.running = false; q.wait = 0; S.stepIdx = -1; S.events.push({ t: S.bt, type: 'info', msg: 'Ciclo automático parado pelo operador' }); cpMsg('Ciclo automático parado. Se houver material, passe para manual e descarregue.'); }
+        break;
+      case 'tmpStop': if (q && q.running) { q.hold = true; S.events.push({ t: S.bt, type: 'info', msg: 'Parada temporária' }); } break;
+      case 'tmpReset': if (q && q.hold) { q.hold = false; S.events.push({ t: S.bt, type: 'info', msg: 'Parada temporária resetada' }); } break;
+      case 'fault': if (S.fault) { cpMsg('Falha resetada: ' + S.fault + '.'); S.fault = null; clearA('TRIP'); } ack('all'); break;
+      case 'rubOk':
+        if (!(q && q.waitOp === 'borracha')) { cpMsg('Nenhuma alimentação manual de borracha aguardando.'); break; }
+        if (ticketErr) { cpMsg('Resete o erro de ticket primeiro.'); break; }
+        if (!S.opWeighOk) { ticketErr = true; raise('TICKET', 'warn', 'Erro de ticket: peso da borracha não confirmado antes da alimentação'); cpMsg('Erro de ticket: confirme o peso antes de concluir a alimentação.'); break; }
+        S.opRubberDone = true; cpMsg('Alimentação de borracha concluída.');
+        break;
+      case 'alarm': ack('all'); break;
+      case 'ddOpen':
+        if (sel.ddKey !== 'man') { cpMsg('Gire a chave da drop door para MANUAL para comandar a porta.'); break; }
+        if (S.feedCmd || S.feed > 0.02) { cpMsg('Intertravamento: feche a porta de alimentação antes de abrir a drop door.'); break; }
+        S.dropManCmd = true; if (massOf(S.m) > 0.5 && S.batchActive) markDrop(S); cpMsg('Drop door abrindo.'); break;
+      case 'ddClose':
+        if (sel.ddKey !== 'man') { cpMsg('Gire a chave da drop door para MANUAL para comandar a porta.'); break; }
+        S.dropManCmd = false; cpMsg('Drop door fechando.'); break;
+    }
+    renderLamps();
+  }
+  function applyPanel(h) {
+    if (sel.ddKey === 'open') S.dropCmd = !(S.feedCmd || S.feed > 0.02); else if (sel.ddKey === 'closed') S.dropCmd = false;
+    if (mode === 'man') S.rpmSP = manRef;
+    if (rampDir) setManRef(manRef + rampDir * 6 * h / Math.max(speed, 1), true);
+    if (ramHold) S.ramCmd = 'stop';
+    else if (sel.ram === 'up') S.ramCmd = 'up';
+    else if (sel.ram === 'down') S.ramCmd = 'down';
+    if (sel.porta === 'open') { if (S.pos < MACH.stroke * 0.03 && !S.dropCmd && S.ramCmd !== 'down') S.feedCmd = true; else if (!S.feedCmd) S._feedBlocked = true; }
+    else if (sel.porta === 'closed') S.feedCmd = false;
+    if (sel.porta !== 'open') S._feedBlocked = false;
+    const M = massOf(S.m);
+    S.jet = sel.jato === 'on' ? true : sel.jato === 'off' ? false : (mode === 'auto' && S.seq && S.seq.running ? !!S.jetReq : false);
+    if (mode === 'man' && S.carbonOn) {
+      let it = S.hopper.find(x => x.ing === 'negro' && x.dosing);
+      if (!it) { it = { ing: 'negro', kg: 0, total: 0, dosing: true }; S.hopper.push(it); }
+      it.kg += 2.5 * h; it.total += 2.5 * h; carbDosed += 2.5 * h;
+    } else S.hopper.forEach(x => { if (x.dosing) x.dosing = false; });
+    if (S.overload) olT += h; else olT = Math.max(0, olT - h);
+    if (olT > 5 && S.motor) { S.motor = false; S.fault = 'sobrecarga do motor principal'; olT = 0; raise('TRIP', 'crit', 'Motor principal desarmado por sobrecarga'); }
+    if (!S.aux && S.motor) S.motor = false;
+  }
+  function lamp(id, on) { const b = $('pb-' + id); b.classList.toggle('lit', lampTest || on === true); b.classList.toggle('blink', !lampTest && on === 'blink'); }
+  function renderLamps() {
+    const q = S.seq, run = q && q.running, un = alarms.some(a => !a.ack);
+    lamp('prep', !readiness().length ? true : (run ? false : false));
+    lamp('forc', run);
+    lamp('ramInt', ramHold);
+    lamp('ticket', ticketErr ? 'blink' : false);
+    lamp('seg', S.emerg ? 'blink' : false);
+    lamp('mill', S.pile > 20 ? (q && q.waitMill ? 'blink' : true) : false);
+    lamp('peso', S.scale.length || (q && q.waitOp === 'borracha' && !S.opWeighOk) ? 'blink' : (S.opWeighOk ? true : false));
+    lamp('mpOn', S.motor); lamp('mpOff', !S.motor);
+    lamp('maOn', S.aux); lamp('maOff', !S.aux);
+    lamp('tcOn', S.tcu); lamp('tcOff', !S.tcu);
+    lamp('autoOn', run && !q.hold ? true : (q && q.wait > 0 ? 'blink' : false)); lamp('autoOff', mode === 'auto' && !run && !(q && q.wait > 0));
+    lamp('tmpStop', run && q.hold); lamp('tmpReset', run && q.hold ? 'blink' : false);
+    lamp('fault', S.fault ? 'blink' : false);
+    lamp('rubOk', q && q.waitOp === 'borracha' ? (S.opWeighOk ? 'blink' : true) : false);
+    lamp('lamp', false);
+    lamp('rpmUp', rampDir > 0); lamp('rpmDn', rampDir < 0);
+    renderDial();
+    lamp('alarm', un ? 'blink' : (alarms.some(a => !a.tOff) ? true : false));
+  }
+  // Preparação: a máquina começa desligada
+  S.motor = false; S.aux = false; S.tcu = false; S.rotors = false;
+  renderSel(); renderLamps();
+
+  // ---------- Potenciômetro de rotação do motor principal ----------
+  function dialHTML() {
+    return '<div class="rpm7" aria-label="Rotação atual do motor principal"><span class="ghost">888</span><span id="dialAct">000</span><small>rpm</small></div>' +
+      '<div class="dial" id="rpmDial" tabindex="0" role="slider" aria-label="Referência de rotação do motor principal" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0">' +
+      '<svg viewBox="0 0 100 100" width="92" height="92"><defs><radialGradient id="bez" cx="40%" cy="35%"><stop offset="0" stop-color="#f2f4f5"/><stop offset=".6" stop-color="#9aa1a6"/><stop offset="1" stop-color="#5d646a"/></radialGradient></defs>' +
+      '<circle cx="50" cy="50" r="47" fill="url(#bez)" stroke="#4a5055"/><circle cx="50" cy="50" r="35" fill="#cfd3d1" stroke="#7b8186"/>' +
+      '<g id="dialKnob"><circle cx="50" cy="50" r="22" fill="#151617" stroke="#000"/><circle cx="50" cy="50" r="15" fill="#26282b"/><rect x="48" y="28" width="4" height="12" rx="1" fill="#d8d8d8"/></g></svg>' +
+      '<div class="dial-read"><span>REF <b id="dialRef">0</b></span></div></div>';
+  }
+  function setManRef(v, quiet) {
+    if (mode !== 'man') { if (!quiet) cpMsg('Rotação em automático: a receita comanda a rotação. Passe o seletor Mixing para manual.'); rampDir = 0; return; }
+    manRef = clamp(v, 0, MACH.rpmMax);
+    $('mRpm').value = Math.round(manRef); $('oRpm').textContent = Math.round(manRef) + ' rpm';
+    renderDial();
+  }
+  function renderDial() {
+    const ref = mode === 'man' ? manRef : (S.motor ? S.rpmSP : 0);
+    $('dialKnob').setAttribute('transform', 'rotate(' + (-150 + ref / 60 * 300).toFixed(1) + ' 50 50)');
+    $('dialRef').textContent = mode === 'man' ? Math.round(manRef) : 'AUTO';
+    $('dialAct').textContent = String(Math.round(S.rpm)).padStart(3, '0');
+    $('rpmDial').setAttribute('aria-valuenow', Math.round(ref));
+    $('rpmDial').classList.toggle('auto', mode !== 'man');
+  }
+  (function () {
+    const d = $('rpmDial'); let drag = false;
+    const angTo = (e) => { const r = d.querySelector('svg').getBoundingClientRect(); const a = Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2))) * 180 / Math.PI; return clamp((a + 135) / 270 * 60, 0, 60); };
+    d.addEventListener('pointerdown', e => { if (mode !== 'man') { setManRef(0); return; } drag = true; d.setPointerCapture(e.pointerId); setManRef(Math.round(angTo(e))); });
+    d.addEventListener('pointermove', e => { if (drag) setManRef(Math.round(angTo(e))); });
+    d.addEventListener('pointerup', () => drag = false);
+    d.addEventListener('wheel', e => { if (mode !== 'man') return; e.preventDefault(); setManRef(manRef + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
+    d.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { setManRef(manRef + 1); e.preventDefault(); } if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { setManRef(manRef - 1); e.preventDefault(); } });
+    [['rpmUp', 1], ['rpmDn', -1]].forEach(([id, dir]) => {
+      const b = $('pb-' + id);
+      b.addEventListener('pointerdown', () => { if (mode !== 'man') { setManRef(0); return; } setManRef(manRef + dir); rampDir = dir; b.classList.add('lit'); });
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => { rampDir = 0; }));
+    });
+  })();
+  renderDial();
+
+  // Prévia da receita no gráfico de análise
+  const _shown = shownData;
+  shownData = function () {
+    if (showSel === 'pred' && previewData) return { main: previewData, cmp: cmpSel === 'prev' ? (history[0] || null) : null, R: previewData.R };
+    return _shown();
+  };
+  const _refresh = refreshShowSel;
+  refreshShowSel = function () {
+    const want = showSel;
+    _refresh(); showSel = want;
+    if (previewData) { const o = document.createElement('option'); o.value = 'pred'; o.textContent = 'Previsão: ' + previewData.R.nome; $('grShow').insertBefore(o, $('grShow').children[1] || null); }
+    $('grShow').value = showSel; if ($('grShow').value !== showSel) { showSel = 'cur'; $('grShow').value = 'cur'; }
+  };
+
+  // ---------- Laço principal ----------
+  let last = performance.now(), uiAcc = 1, chAcc = 1;
+  function frame(now) {
+    const rdt = Math.min(0.1, (now - last) / 1000); last = now;
+    const sdt = rdt * speed; const n = Math.ceil(sdt / 0.05);
+    for (let i = 0; i < n; i++) {
+      const h = sdt / n;
+      if (mode === 'auto') sequencer(S, h);
+      applyPanel(h);
+      physics(S, h);
+      if (S.drop < 0.1) S.pile = Math.max(0, S.pile - 6 * h);
+    }
+    drawSyn(sdt);
+    uiAcc += rdt; chAcc += rdt;
+    if (uiAcc > 0.15) { uiAcc = 0; updatePV(); updateReplica(); renderMatrix(false); checkAlarms(); renderLamps(); }
+    if (chAcc > 0.4) { chAcc = 0; drawMini(); if (view === 'gr' && (showSel === 'cur' || hoverX !== null)) drawTrends(); if (view === 'tr') drawTR(); }
+    requestAnimationFrame(frame);
+  }
+  window.addEventListener('resize', () => { drawMini(); drawTrends(); drawTR(); });
+
+  fillRecSelect(); renderPlan(); renderMatrix(true); renderAlarms(); renderHistory(); $('bModeAuto').classList.add('on'); syncManOut();
+  requestAnimationFrame(frame);
+})();
+// ==UI END==
+
+</script>
+
+</body>
+</html>
