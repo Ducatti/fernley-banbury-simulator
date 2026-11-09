@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Simulador No. 1 Mixer</title>
+<style>
+  :root { color-scheme: dark; --bg: #1b1f23; --panel: #252a2f; --line: #3d454d; --fg: #dfe4e8; --dim: #8f99a3; --accent: #5aa9d6; --alarm: #ec4f52; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif; display: grid; place-items: center; padding: 16px; }
+  form { width: min(380px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .04em; }
+  p { margin: 0; color: var(--dim); font-size: 14px; }
+  label { font-size: 12px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; display: flex; flex-direction: column; gap: 6px; }
+  input[type=password] { background: #15181b; border: 1px solid #4c565f; color: var(--fg); border-radius: 3px; padding: 10px; font-size: 16px; }
+  .chk { flex-direction: row; align-items: center; text-transform: none; letter-spacing: 0; font-size: 14px; }
+  button { background: var(--accent); color: #0d2230; border: 0; border-radius: 3px; padding: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .err { color: var(--alarm); min-height: 18px; font-size: 14px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>No. 1 MIXER</h1>
+  <p>Simulador de treinamento do misturador. Digite a senha para entrar.</p>
+  <label>Senha<input type="password" id="pw" autocomplete="current-password" autofocus required></label>
+  <label class="chk"><input type="checkbox" id="rem"> Lembrar neste computador</label>
+  <button id="go" type="submit">Entrar</button>
+  <div class="err" id="err" role="alert"></div>
+</form>
+<script>
+(function () {
+  const SALT = '__SALT__', IV = '__IV__', ITER = __ITER__, DATA = '__DATA__';
+  const KEY = 'no1mixer.chave.' + SALT;
+  const b = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const b64 = (u) => btoa(String.fromCharCode.apply(null, new Uint8Array(u)));
+  async function derive(pw) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b(SALT), iterations: ITER, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+  }
+  async function open(key) {
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b(IV) }, key, b(DATA));
+    const html = new TextDecoder().decode(plain);
+    document.open(); document.write(html); document.close();
+  }
+  async function tryStored() {
+    let raw = null; try { raw = localStorage.getItem(KEY); } catch (e) {}
+    if (!raw) return;
+    try { await open(await crypto.subtle.importKey('raw', b(raw), 'AES-GCM', false, ['decrypt'])); }
+    catch (e) { try { localStorage.removeItem(KEY); } catch (x) {} }
+  }
+  document.getElementById('f').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('err'), go = document.getElementById('go');
+    err.textContent = ''; go.disabled = true; go.textContent = 'Verificando…';
+    try {
+      const key = await derive(document.getElementById('pw').value);
+      const raw = await crypto.subtle.exportKey('raw', key);
+      if (document.getElementById('rem').checked) { try { localStorage.setItem(KEY, b64(raw)); } catch (x) {} }
+      await open(key);
+    } catch (x) {
+      err.textContent = 'Senha incorreta.'; go.disabled = false; go.textContent = 'Entrar';
+      document.getElementById('pw').select();
+    }
+  });
+  if (!window.crypto || !crypto.subtle) { document.getElementById('err').textContent = 'Este navegador não permite abrir a página. Use Chrome, Edge ou Firefox atualizados, por https.'; }
+  else tryStored();
+})();
+</script>
+</body>
+</html>

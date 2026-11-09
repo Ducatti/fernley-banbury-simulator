@@ -4,7 +4,11 @@ Simulador web interativo para treinar operadores do misturador interno de borrac
 
 ## Como usar
 
-Abra o arquivo `index.html` no navegador (Chrome, Edge ou Firefox).
+O `index.html` publicado é **protegido por senha**. O simulador fica criptografado (AES-256-GCM) e só abre com a senha correta. A opção "Lembrar neste computador" evita digitar a senha toda vez naquele navegador.
+
+Para testar localmente sem senha, rode `python3 build.py` e abra `dist/simulador.html`.
+
+> A senha protege a página publicada. Os fontes em `src/` ficam visíveis enquanto o repositório for público. Para proteger tudo, deixe o repositório privado.
 
 Para iniciar um batch automático:
 
@@ -48,7 +52,8 @@ Premissas a confirmar com a fábrica:
 ## Estrutura
 
 ```
-index.html        página pronta (gerada)
+index.html        página publicada, criptografada com senha (gerada)
+src/lock.html     tela de senha que descriptografa o simulador no navegador
 build.py          gera index.html a partir de src/
 src/model.js      modelo físico e sequenciador da receita
 src/recipes.js    receitas de exemplo (S337Y, masterbatch e final)
@@ -59,5 +64,8 @@ src/ui_*.js       interface: operação, ficha, gráficos, painel de comando
 Depois de alterar os arquivos em `src/`, gere a página de novo com:
 
 ```
-python3 build.py
+pip install cryptography
+BANBURY_SENHA='sua senha' python3 build.py
 ```
+
+Esse comando também serve para **trocar a senha**: gere com a senha nova e publique o `index.html`. A senha nunca é gravada no repositório. Quem marcou "Lembrar neste computador" vai precisar digitar a senha nova.
