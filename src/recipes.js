@@ -5,7 +5,7 @@ const EMPTY_STEP = () => ({ fw: '', airBlow: false, airCharge: false, hopper: fa
 function mkSteps(list) { const a = list.map(x => Object.assign(EMPTY_STEP(), x)); while (a.length < 12) a.push(EMPTY_STEP()); return a; }
 const DEFAULT_RECIPES = [
   {
-    id: 's337y', compound: 'S337Y', klass: 'S', mixDiv: 'A', hqNo: '2', wtNo: '17', slitter: 4, thickness: 8.0, limitDay: 30,
+    id: 's848x', compound: 'S848X', klass: 'S', mixDiv: 'A', hqNo: '2', wtNo: '17', slitter: 4, thickness: 8.0, limitDay: 30,
     approve: '', check: '', make: '',
     ingredients: [{ code: '', name: 'S337X', tipo: 'mb', kg: 305, tol: 1 }],
     carbon: [{ no: 4, kind: 'N220*ISAF*', kg: 17.4, step: 1 }],
